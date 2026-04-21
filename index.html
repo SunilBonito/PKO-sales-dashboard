@@ -94,6 +94,68 @@
   }
   .reset-btn:hover{background:var(--accent)}
 
+  /* clear-per-group link */
+  .clear-link{
+    background:none;border:none;cursor:pointer;
+    font-family:inherit;font-size:10px;color:var(--muted);
+    text-transform:lowercase;letter-spacing:.04em;
+    padding:0 0 0 8px;font-weight:400;
+  }
+  .clear-link:hover{color:var(--accent);text-decoration:underline}
+  aside.filters h3{display:flex;justify-content:space-between;align-items:baseline}
+
+  /* PID toggle row */
+  .option-toggle{
+    display:flex;align-items:flex-start;gap:8px;font-size:12px;
+    color:var(--ink-2);cursor:pointer;padding:4px 0;line-height:1.4;
+  }
+  .option-toggle input{accent-color:var(--accent);cursor:pointer;margin-top:2px;flex-shrink:0}
+  .option-toggle:hover{color:var(--ink)}
+
+  /* Active filter pills */
+  #active-filters-wrap{
+    margin-bottom:18px;padding:12px 14px;background:var(--card);
+    border:1px solid var(--accent);border-radius:6px;
+  }
+  .active-filters-head{
+    display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;
+    font-family:'Fraunces',serif;font-size:11px;letter-spacing:.15em;
+    text-transform:uppercase;color:var(--accent);
+  }
+  .pills{display:flex;flex-wrap:wrap;gap:4px}
+  .pill{
+    display:inline-flex;align-items:center;gap:4px;
+    background:var(--paper-2);color:var(--ink);
+    padding:3px 8px;border-radius:999px;font-size:11px;
+    border:1px solid var(--line);
+  }
+  .pill .pill-type{font-size:9px;text-transform:uppercase;color:var(--muted);letter-spacing:.05em}
+  .pill button{
+    background:none;border:none;cursor:pointer;font-size:14px;line-height:1;
+    padding:0 0 0 2px;color:var(--muted);
+  }
+  .pill button:hover{color:var(--danger)}
+
+  /* Chart hover / click affordance */
+  .chart-wrap canvas{cursor:pointer}
+  .chart-hint{
+    font-size:10px;color:var(--muted);font-style:italic;margin-top:6px;
+    text-align:right;
+  }
+
+  /* Download buttons on tabs */
+  .tab-actions{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px}
+  .download-btn{
+    display:inline-flex;align-items:center;gap:6px;
+    background:var(--card);border:1px solid var(--line);
+    padding:6px 12px;border-radius:4px;cursor:pointer;
+    font-family:inherit;font-size:11px;color:var(--ink-2);
+    letter-spacing:.04em;
+    transition:border-color .15s, color .15s;
+  }
+  .download-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .download-btn svg{width:13px;height:13px}
+
   /* ——— canvas ——— */
   .canvas{padding:28px 40px 60px;overflow-x:hidden}
 
@@ -203,24 +265,38 @@
 
 <main>
   <aside class="filters">
-    <h3>Date Range</h3>
+    <div id="active-filters-wrap" style="display:none">
+      <div class="active-filters-head">
+        <span>Active filters</span>
+        <button class="clear-link" id="resetBtn2">clear all</button>
+      </div>
+      <div class="pills" id="active-pills"></div>
+    </div>
+
+    <h3>Date Range <button class="clear-link" data-clear="date">reset</button></h3>
     <div class="date-row">
       <input type="date" id="dateFrom" />
       <span>→</span>
       <input type="date" id="dateTo" />
     </div>
 
-    <h3>Branch</h3>
+    <h3>Options</h3>
+    <label class="option-toggle">
+      <input type="checkbox" id="excludePid" checked>
+      <span>Exclude one-off products (containing "PID")</span>
+    </label>
+
+    <h3>Branch <button class="clear-link" data-clear="branch">clear</button></h3>
     <div class="filter-group" id="f-branch"></div>
 
-    <h3>Backend Product Type</h3>
+    <h3>Backend Product Type <button class="clear-link" data-clear="default">clear</button></h3>
     <div class="filter-group" id="f-default"></div>
 
-    <h3>Brand</h3>
+    <h3>Brand <button class="clear-link" data-clear="brand">clear</button></h3>
     <input class="filter-search" id="s-brand" placeholder="Filter brands…" />
     <div class="filter-group" id="f-brand"></div>
 
-    <h3>Category</h3>
+    <h3>Category <button class="clear-link" data-clear="category">clear</button></h3>
     <input class="filter-search" id="s-category" placeholder="Filter categories…" />
     <div class="filter-group" id="f-category"></div>
 
@@ -269,11 +345,13 @@
           <h2>Revenue by month</h2>
           <div class="card-sub">₹ Crores · trending across fiscal period</div>
           <div class="chart-wrap"><canvas id="chart-month"></canvas></div>
+          <div class="chart-hint">click a month to filter</div>
         </div>
         <div class="card">
           <h2>Revenue by Backend Product Type</h2>
           <div class="card-sub">₹ Crores · per Default Category</div>
           <div class="chart-wrap"><canvas id="chart-default"></canvas></div>
+          <div class="chart-hint">click a bar to filter by type</div>
         </div>
       </div>
 
@@ -282,6 +360,7 @@
           <h2>Top Categories by Quantity Sold</h2>
           <div class="card-sub">Lakhs · horizontal leaderboard (top 12)</div>
           <div class="chart-wrap tall"><canvas id="chart-category"></canvas></div>
+          <div class="chart-hint">click a category to filter</div>
         </div>
         <div class="card">
           <h2>Monthly breakdown</h2>
@@ -303,8 +382,16 @@
         </div>
 
         <div id="tab-dead" class="tab-pane">
-          <h2 style="margin:0 0 4px">Products in Studio · never used in any PKO</h2>
-          <div class="card-sub">filtered by current brand/category selection · top 500 shown</div>
+          <div class="tab-actions">
+            <div>
+              <h2 style="margin:0 0 4px">Products in Studio · never used in any PKO</h2>
+              <div class="card-sub">filtered by current brand/category selection · top 500 shown</div>
+            </div>
+            <button class="download-btn" data-dl="dead">
+              <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 12l-4-4h3V2h2v6h3l-4 4zm-6 4v2h12v-2H4z"/></svg>
+              Download CSV
+            </button>
+          </div>
           <div class="scroll-table" style="max-height:480px">
             <table id="tbl-dead">
               <thead><tr>
@@ -317,8 +404,16 @@
         </div>
 
         <div id="tab-fast" class="tab-pane" style="display:none">
-          <h2 style="margin:0 0 4px">Fast-moving products · used in more than 5 projects</h2>
-          <div class="card-sub">sorted by project count · top 500 shown</div>
+          <div class="tab-actions">
+            <div>
+              <h2 style="margin:0 0 4px">Fast-moving products · used in more than 5 projects</h2>
+              <div class="card-sub">sorted by project count · top 500 shown</div>
+            </div>
+            <button class="download-btn" data-dl="fast">
+              <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 12l-4-4h3V2h2v6h3l-4 4zm-6 4v2h12v-2H4z"/></svg>
+              Download CSV
+            </button>
+          </div>
           <div class="scroll-table" style="max-height:480px">
             <table id="tbl-fast">
               <thead><tr>
@@ -331,8 +426,16 @@
         </div>
 
         <div id="tab-slow" class="tab-pane" style="display:none">
-          <h2 style="margin:0 0 4px">Slow-moving products · 1–5 projects</h2>
-          <div class="card-sub">ranked by fewest projects first · top 500 shown</div>
+          <div class="tab-actions">
+            <div>
+              <h2 style="margin:0 0 4px">Slow-moving products · 1–5 projects</h2>
+              <div class="card-sub">ranked by fewest projects first · top 500 shown</div>
+            </div>
+            <button class="download-btn" data-dl="slow">
+              <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 12l-4-4h3V2h2v6h3l-4 4zm-6 4v2h12v-2H4z"/></svg>
+              Download CSV
+            </button>
+          </div>
           <div class="scroll-table" style="max-height:480px">
             <table id="tbl-slow">
               <thead><tr>
@@ -364,8 +467,10 @@ const STATE = {
   filters: {
     branches:new Set(), brands:new Set(), categories:new Set(),
     defaults:new Set(), dateFrom:null, dateTo:null,
+    excludePid:true,
   },
   charts: {},
+  lastDead: [], lastFast: [], lastSlow: [],   // cached for CSV download
 };
 
 const PALETTE = {
@@ -411,11 +516,30 @@ function ymLabel(key){
 }
 
 /* ——— load ——— */
-function loadCsv(path){
-  return new Promise((res,rej)=>{
-    Papa.parse(path,{download:true, header:true, skipEmptyLines:true,
-      complete:r=>res(r.data), error:rej});
-  });
+// Use fetch first so we get a real HTTP status and error message.
+// Then hand the text to PapaParse. This tells us *why* a file fails.
+async function loadCsv(path){
+  let resp;
+  try{
+    resp = await fetch(path);
+  }catch(e){
+    throw new Error(`Network error fetching "${path}" — ${e.message}`);
+  }
+  if(!resp.ok){
+    throw new Error(`Couldn't load "${path}" — HTTP ${resp.status} ${resp.statusText}. `
+      +`Check that the filename matches exactly (case-sensitive on GitHub) and the file is in the same folder as index.html.`);
+  }
+  const text = await resp.text();
+  if(text.trim().startsWith('<')){
+    throw new Error(`"${path}" returned HTML instead of CSV. `
+      +`This usually means the file is missing and GitHub served a 404 page. `
+      +`Check the exact filename in your repo.`);
+  }
+  const parsed = Papa.parse(text, {header:true, skipEmptyLines:true});
+  if(parsed.errors && parsed.errors.length){
+    console.warn('CSV parse warnings for',path,parsed.errors.slice(0,3));
+  }
+  return parsed.data;
 }
 
 async function init(){
@@ -423,12 +547,18 @@ async function init(){
   try{
     const [sales, studio] = await Promise.all([loadCsv(SALES_FILE), loadCsv(STUDIO_FILE)]);
 
+    // Normalize ERP: strip whitespace + uppercase, so 'hwht123 ' === 'HWHT123'
+    const normErp = s => (s||'').toString().trim().toUpperCase();
+    // Detect one-off PID products by name
+    const PID_RE = /\bPID[\s:\-]*\d*/i;
+    const isPid = r => PID_RE.test(r['Product Name']||'') || PID_RE.test(r['Item Name']||'');
+
     // Coerce sales
     STATE.sales = sales.map(r=>({
       projectNo: r['Project No'],
       date: parseDMY(r['PKO Date']),
       branch: (r['Branch']||'').trim(),
-      erp: (r['ERP Code']||'').trim(),
+      erp: normErp(r['ERP Code']),
       qty: parseFloat(r['Qty'])||0,
       amount: parseFloat(r['Amount'])||0,
       itemName: r['Item Name']||'',
@@ -436,13 +566,14 @@ async function init(){
       category: (r['Category']||'').trim(),
       brand: (r['Brand']||'').trim(),
       defaultCategory: (r['Default Category']||'').trim(),
+      isPid: isPid(r),
     })).filter(r=>r.date);
 
     STATE.studio = studio.map(r=>({
       productId: r['Product ID'],
       productName: r['Product Name']||'',
       variantName: r['Variant Name']||'',
-      erp: (r['ERP Code']||'').trim(),
+      erp: normErp(r['ERP Code']),
       brand: (r['Brand']||'').trim(),
       category: (r['Category']||'').trim(),
       backendType: (r['Backend Product Types']||'').trim(),
@@ -451,6 +582,21 @@ async function init(){
       mumSp: parseFloat(r['MUM SP'])||0,
       status: r['Status']||'',
     }));
+
+    // Diagnostic: log data health to console so we can debug if dead stock looks wrong
+    const studioErps = new Set(STATE.studio.map(r=>r.erp).filter(Boolean));
+    const salesErps  = new Set(STATE.sales.map(r=>r.erp).filter(Boolean));
+    const overlap = [...studioErps].filter(e => salesErps.has(e)).length;
+    console.log('[PKO Dashboard] Data loaded:');
+    console.log('  Sales rows:', STATE.sales.length);
+    console.log('  Studio rows:', STATE.studio.length);
+    console.log('  Unique ERPs in Studio (non-blank):', studioErps.size);
+    console.log('  Unique ERPs in Sales (non-blank):', salesErps.size);
+    console.log('  Overlap (studio ERPs used in sales):', overlap);
+    console.log('  Dead stock (studio ERPs not in sales):', studioErps.size - overlap);
+    if(STATE.studio.length === 0){
+      console.warn('[PKO Dashboard] Studio CSV loaded 0 rows! Check that Studio_Dump_for_PKO_Sales.csv exists and is a real CSV (not a Git LFS pointer).');
+    }
 
     status.textContent = `${STATE.sales.length.toLocaleString()} sales rows · ${STATE.studio.length.toLocaleString()} products`;
     status.classList.add('loaded');
@@ -463,25 +609,35 @@ async function init(){
     status.textContent = 'Failed to load';
     status.classList.add('error');
     document.getElementById('loader').style.display='none';
+    const msg = err && err.message ? err.message : String(err);
     document.getElementById('error-container').innerHTML = `
       <div class="error-box">
         <h3>Couldn't load the CSV files</h3>
-        <p>This dashboard needs two files next to <code>index.html</code>:</p>
+        <p style="font-family:'JetBrains Mono',monospace;background:var(--card);padding:12px;border-radius:4px;font-size:12px;line-height:1.5;color:var(--ink)">${escapeHtml(msg)}</p>
+        <p style="margin-top:18px"><strong>Common fixes:</strong></p>
         <ul>
-          <li><code>Sales_PKO.csv</code></li>
-          <li><code>Studio_Dump_for_PKO_Sales.csv</code></li>
+          <li><strong>Check filenames exactly.</strong> GitHub is case-sensitive. They must be:
+            <br><code>Sales_PKO.csv</code> and <code>Studio_Dump_for_PKO_Sales.csv</code>
+            <br>(capital S, capital P, underscores — no spaces, no lowercase)</li>
+          <li><strong>Check files are in the repo root</strong>, alongside <code>index.html</code> (not in a subfolder).</li>
+          <li><strong>Test the CSV directly:</strong> open
+            <br><code>&lt;your-pages-url&gt;/Sales_PKO.csv</code>
+            <br>in your browser. If you get a 404 or HTML page, the filename is wrong.</li>
+          <li><strong>Opening this file via <code>file://</code> locally?</strong> Browsers block that. Run <code>python3 -m http.server</code> in the folder instead.</li>
         </ul>
-        <p>If you're opening this file directly in the browser (<code>file://</code>), browser security blocks CSV fetch. Either:</p>
-        <ol>
-          <li>Run a local server: <code>python -m http.server</code> in the folder, then open <code>http://localhost:8000</code></li>
-          <li>Or push to GitHub and enable Pages</li>
-        </ol>
-        <p style="margin-top:14px;color:var(--muted);font-size:12px">Error: ${err.message||err}</p>
       </div>`;
   }
 }
 
 /* ——— filter UI ——— */
+// Single source of truth for filter group -> state set mapping
+const FILTER_GROUPS = {
+  branch:   {setKey:'branches',   groupId:'f-branch',   labeler:null},
+  default:  {setKey:'defaults',   groupId:'f-default',  labeler:v=>DEFAULT_LABELS[v]||v},
+  brand:    {setKey:'brands',     groupId:'f-brand',    labeler:null},
+  category: {setKey:'categories', groupId:'f-category', labeler:null},
+};
+
 function buildFilters(){
   const branches = [...new Set(STATE.sales.map(r=>r.branch))].sort();
   const defaults = [...new Set(STATE.sales.map(r=>r.defaultCategory))].sort();
@@ -509,23 +665,55 @@ function buildFilters(){
   df.max = dt.max = toISO(max);
   df.value = toISO(min); dt.value = toISO(max);
   STATE.filters.dateFrom = min; STATE.filters.dateTo = max;
+  STATE._dateMin = min; STATE._dateMax = max;
 
-  df.addEventListener('change', e=>{ STATE.filters.dateFrom = e.target.value?new Date(e.target.value):null; refresh(); });
-  dt.addEventListener('change', e=>{ STATE.filters.dateTo = e.target.value?new Date(e.target.value+'T23:59:59'):null; refresh(); });
+  df.addEventListener('change', e=>{
+    STATE.filters.dateFrom = e.target.value?new Date(e.target.value):null; refresh();
+  });
+  dt.addEventListener('change', e=>{
+    STATE.filters.dateTo = e.target.value?new Date(e.target.value+'T23:59:59'):null; refresh();
+  });
 
-  // searches
+  // PID toggle
+  const pidCb = document.getElementById('excludePid');
+  pidCb.checked = STATE.filters.excludePid;
+  pidCb.addEventListener('change', e=>{ STATE.filters.excludePid = e.target.checked; refresh(); });
+
+  // Brand/category searches
   document.getElementById('s-brand').addEventListener('input',e=>filterChecklist('f-brand',e.target.value));
   document.getElementById('s-category').addEventListener('input',e=>filterChecklist('f-category',e.target.value));
 
-  document.getElementById('resetBtn').addEventListener('click',()=>{
-    Object.values(STATE.filters).forEach(v=>{ if(v instanceof Set) v.clear(); });
-    document.querySelectorAll('aside input[type=checkbox]').forEach(c=>c.checked=false);
-    df.value = toISO(min); dt.value = toISO(max);
-    STATE.filters.dateFrom = min; STATE.filters.dateTo = max;
-    refresh();
+  // Per-group "clear" links in section headers
+  document.querySelectorAll('.clear-link[data-clear]').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      e.stopPropagation();
+      const grp = btn.dataset.clear;
+      if(grp === 'date'){
+        df.value = toISO(min); dt.value = toISO(max);
+        STATE.filters.dateFrom = min; STATE.filters.dateTo = max;
+      } else if(FILTER_GROUPS[grp]){
+        STATE.filters[FILTER_GROUPS[grp].setKey].clear();
+        document.querySelectorAll('#'+FILTER_GROUPS[grp].groupId+' input[type=checkbox]')
+          .forEach(c=>c.checked=false);
+      }
+      refresh();
+    });
   });
 
-  // tabs
+  // Reset all
+  const resetAll = ()=>{
+    Object.values(FILTER_GROUPS).forEach(g=> STATE.filters[g.setKey].clear());
+    document.querySelectorAll('aside .filter-group input[type=checkbox]').forEach(c=>c.checked=false);
+    df.value = toISO(min); dt.value = toISO(max);
+    STATE.filters.dateFrom = min; STATE.filters.dateTo = max;
+    STATE.filters.excludePid = true;
+    pidCb.checked = true;
+    refresh();
+  };
+  document.getElementById('resetBtn').addEventListener('click', resetAll);
+  document.getElementById('resetBtn2').addEventListener('click', resetAll);
+
+  // Tabs
   document.querySelectorAll('.tab').forEach(t=>{
     t.addEventListener('click',()=>{
       document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -534,6 +722,38 @@ function buildFilters(){
       document.getElementById('tab-'+t.dataset.tab).style.display='block';
     });
   });
+
+  // CSV download buttons
+  document.querySelectorAll('.download-btn[data-dl]').forEach(btn=>{
+    btn.addEventListener('click', ()=> downloadCsv(btn.dataset.dl));
+  });
+}
+
+// Programmatically set a filter value (used when clicking chart elements)
+function toggleFilter(group, value){
+  if(!FILTER_GROUPS[group]) return;
+  const set = STATE.filters[FILTER_GROUPS[group].setKey];
+  if(set.has(value)) set.delete(value); else set.add(value);
+  // Reflect in checkbox UI
+  const labels = document.querySelectorAll('#'+FILTER_GROUPS[group].groupId+' label');
+  labels.forEach(l=>{
+    if(l.dataset.val === value){
+      const cb = l.querySelector('input');
+      if(cb) cb.checked = set.has(value);
+    }
+  });
+  refresh();
+}
+function setDateToMonth(ymKey){
+  // ymKey like '2025-04' — zoom the date range to that month
+  const [y,m] = ymKey.split('-').map(Number);
+  const from = new Date(y, m-1, 1);
+  const to = new Date(y, m, 0, 23,59,59);
+  STATE.filters.dateFrom = from;
+  STATE.filters.dateTo = to;
+  document.getElementById('dateFrom').value = from.toISOString().slice(0,10);
+  document.getElementById('dateTo').value = to.toISOString().slice(0,10);
+  refresh();
 }
 
 function renderCheckGroup(id, values, targetSet, labeler){
@@ -563,6 +783,7 @@ function filterChecklist(id, q){
 function applySalesFilters(rows){
   const f = STATE.filters;
   return rows.filter(r=>{
+    if(f.excludePid && r.isPid) return false;
     if(f.dateFrom && r.date < f.dateFrom) return false;
     if(f.dateTo   && r.date > f.dateTo) return false;
     if(f.branches.size   && !f.branches.has(r.branch)) return false;
@@ -613,8 +834,14 @@ function refresh(){
       defaultCategory: rs[0].defaultCategory,
     };
   });
-  const fast = movementRows.filter(r=>r.projects>5);
-  const slow = movementRows.filter(r=>r.projects<=5 && r.projects>0);
+  const fast = movementRows.filter(r=>r.projects>5).sort((a,b)=>b.projects-a.projects);
+  const slow = movementRows.filter(r=>r.projects<=5 && r.projects>0)
+                           .sort((a,b)=>a.projects-b.projects || b.revenue-a.revenue);
+
+  // cache for CSV downloads
+  STATE.lastDead = dead;
+  STATE.lastFast = fast;
+  STATE.lastSlow = slow;
 
   document.getElementById('kpi-revenue').textContent  = fmtCr(totalRev);
   document.getElementById('kpi-qty').textContent      = fmtL(totalQty);
@@ -636,13 +863,69 @@ function refresh(){
       dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
   }
 
+  renderActivePills();
   drawMonthChart(sales);
   drawDefaultChart(sales);
   drawCategoryChart(sales);
   renderMonthTable(sales);
   renderDeadTable(dead);
-  renderMovementTable('tbl-fast', fast.sort((a,b)=>b.projects-a.projects));
-  renderMovementTable('tbl-slow', slow.sort((a,b)=>a.projects-b.projects || b.revenue-a.revenue));
+  renderMovementTable('tbl-fast', fast);
+  renderMovementTable('tbl-slow', slow);
+}
+
+/* ——— active filter pills ——— */
+function renderActivePills(){
+  const f = STATE.filters;
+  const pills = [];
+  if(f.branches.size)   f.branches.forEach(v=> pills.push({type:'Branch',   value:v, group:'branch'}));
+  if(f.defaults.size)   f.defaults.forEach(v=> pills.push({type:'Type',     value:DEFAULT_LABELS[v]||v, raw:v, group:'default'}));
+  if(f.brands.size)     f.brands.forEach(v=>   pills.push({type:'Brand',    value:v, group:'brand'}));
+  if(f.categories.size) f.categories.forEach(v=>pills.push({type:'Category',value:v, group:'category'}));
+
+  const dMin = STATE._dateMin, dMax = STATE._dateMax;
+  const dateNarrowed = dMin && dMax && (+f.dateFrom !== +dMin || +f.dateTo !== +dMax);
+  if(dateNarrowed){
+    pills.push({
+      type:'Date',
+      value: f.dateFrom.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})+' – '+
+             f.dateTo.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}),
+      group:'date',
+    });
+  }
+  if(!f.excludePid) pills.push({type:'Options', value:'Including PID products', group:'pid'});
+
+  const wrap = document.getElementById('active-filters-wrap');
+  const host = document.getElementById('active-pills');
+  if(!pills.length){ wrap.style.display='none'; host.innerHTML=''; return; }
+  wrap.style.display='block';
+  host.innerHTML = pills.map((p,i)=>`
+    <span class="pill" data-pill-i="${i}">
+      <span class="pill-type">${p.type}:</span>
+      <span>${escapeHtml(p.value)}</span>
+      <button title="Remove">×</button>
+    </span>`).join('');
+  host.querySelectorAll('.pill').forEach((el,i)=>{
+    el.querySelector('button').addEventListener('click',()=>{
+      const p = pills[i];
+      if(p.group === 'date'){
+        STATE.filters.dateFrom = STATE._dateMin; STATE.filters.dateTo = STATE._dateMax;
+        document.getElementById('dateFrom').value = STATE._dateMin.toISOString().slice(0,10);
+        document.getElementById('dateTo').value = STATE._dateMax.toISOString().slice(0,10);
+      } else if(p.group === 'pid'){
+        STATE.filters.excludePid = true;
+        document.getElementById('excludePid').checked = true;
+      } else if(FILTER_GROUPS[p.group]){
+        STATE.filters[FILTER_GROUPS[p.group].setKey].delete(p.raw || p.value);
+        // reflect in checkboxes
+        document.querySelectorAll('#'+FILTER_GROUPS[p.group].groupId+' label').forEach(l=>{
+          if(l.dataset.val === (p.raw || p.value)){
+            const cb = l.querySelector('input'); if(cb) cb.checked=false;
+          }
+        });
+      }
+      refresh();
+    });
+  });
 }
 
 /* ——— aggregations + charts ——— */
@@ -685,12 +968,18 @@ function drawMonthChart(sales){
     }]},
     options:{
       responsive:true, maintainAspectRatio:false,
+      onClick:(evt, elements)=>{
+        if(!elements.length) return;
+        const idx = elements[0].index;
+        setDateToMonth(data[idx].k);
+      },
+      onHover:(evt, els)=>{ evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
       plugins:{
         legend:{display:false},
         tooltip:{
           backgroundColor:PALETTE.ink, titleColor:'#fff', bodyColor:'#fff',
           padding:10, borderColor:PALETTE.accent, borderWidth:1, displayColors:false,
-          callbacks:{label:c=>'₹ '+c.parsed.y.toFixed(2)+' Cr'},
+          callbacks:{label:c=>'₹ '+c.parsed.y.toFixed(2)+' Cr · click to filter'},
         },
       },
       scales:{
@@ -719,12 +1008,17 @@ function drawDefaultChart(sales){
     }]},
     options:{
       responsive:true, maintainAspectRatio:false,
+      onClick:(evt, elements)=>{
+        if(!elements.length) return;
+        toggleFilter('default', data[elements[0].index].k);
+      },
+      onHover:(evt, els)=>{ evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
       plugins:{
         legend:{display:false},
         tooltip:{
           backgroundColor:PALETTE.ink, titleColor:'#fff', bodyColor:'#fff',
           padding:10, displayColors:false,
-          callbacks:{label:c=>'₹ '+c.parsed.y.toFixed(2)+' Cr'},
+          callbacks:{label:c=>'₹ '+c.parsed.y.toFixed(2)+' Cr · click to filter'},
         },
       },
       scales:{
@@ -752,12 +1046,17 @@ function drawCategoryChart(sales){
     }]},
     options:{
       indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      onClick:(evt, elements)=>{
+        if(!elements.length) return;
+        toggleFilter('category', data[elements[0].index].k);
+      },
+      onHover:(evt, els)=>{ evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
       plugins:{
         legend:{display:false},
         tooltip:{
           backgroundColor:PALETTE.ink, titleColor:'#fff', bodyColor:'#fff',
           padding:10, displayColors:false,
-          callbacks:{label:c=>c.parsed.x.toFixed(2)+' Lakh units'},
+          callbacks:{label:c=>c.parsed.x.toFixed(2)+' Lakh units · click to filter'},
         },
       },
       scales:{
@@ -822,6 +1121,62 @@ function renderMovementTable(tblId, rows){
 function escapeHtml(s){
   if(s==null) return '';
   return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ——— CSV download ——— */
+function csvCell(v){
+  if(v==null) return '';
+  const s = String(v);
+  // Quote if contains comma, quote, newline, or starts with - (= formula in Excel)
+  if(/[",\n\r]/.test(s) || s.startsWith('=') || s.startsWith('-') || s.startsWith('+') || s.startsWith('@')){
+    return '"' + s.replace(/"/g,'""') + '"';
+  }
+  return s;
+}
+function toCsv(headers, rows){
+  const lines = [headers.map(csvCell).join(',')];
+  rows.forEach(r => lines.push(r.map(csvCell).join(',')));
+  // UTF-8 BOM so Excel opens with correct encoding for ₹ and non-ASCII chars
+  return '\uFEFF' + lines.join('\r\n');
+}
+function saveFile(filename, content){
+  const blob = new Blob([content], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
+}
+function todayStamp(){
+  const d = new Date();
+  return d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0');
+}
+function downloadCsv(which){
+  const stamp = todayStamp();
+  if(which==='dead'){
+    const rows = STATE.lastDead.map(r=>[
+      r.variantName||r.productName, r.productName, r.category, r.brand,
+      DEFAULT_LABELS[r.backendType]||r.backendType, r.erp,
+      r.bngSp||'', r.mumSp||'', r.city||'',
+    ]);
+    const csv = toCsv(
+      ['Variant Name','Product Name','Category','Brand','Backend Type','ERP Code','BNG SP','MUM SP','City'],
+      rows
+    );
+    saveFile(`dead_stock_${stamp}.csv`, csv);
+  } else if(which==='fast' || which==='slow'){
+    const src = which==='fast' ? STATE.lastFast : STATE.lastSlow;
+    const rows = src.map(r=>[
+      r.productName, r.category, r.brand, r.erp,
+      DEFAULT_LABELS[r.defaultCategory]||r.defaultCategory,
+      r.projects, r.qty.toFixed(2), r.revenue.toFixed(2),
+    ]);
+    const csv = toCsv(
+      ['Product Name','Category','Brand','ERP Code','Backend Type','Projects','Qty','Revenue (INR)'],
+      rows
+    );
+    saveFile(`${which}_moving_${stamp}.csv`, csv);
+  }
 }
 
 /* go */
