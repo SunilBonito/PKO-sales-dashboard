@@ -772,6 +772,36 @@ async function init(){
     // ——— Pre-compute index caches (done ONCE, dramatically speeds up refresh) ———
     STATE._studioErpSet = new Set(STATE.studio.map(r=>r.erp).filter(Boolean));
 
+    // ——— Trust the Studio dump as the source of truth for
+    //     brand ↔ category ↔ backend-type relationships.
+    //     Sales CSV has data-entry issues (e.g. "Bonito Elecrical" typo tagged
+    //     as type_bonito_studio when it should be type_service). For every
+    //     sales row whose ERP exists in Studio, we override its
+    //     defaultCategory / brand / category from the Studio master. ———
+    const studioByErp = new Map();
+    for(const s of STATE.studio){
+      if(s.erp && !studioByErp.has(s.erp)) studioByErp.set(s.erp, s);
+    }
+    let reassigned = 0;
+    for(const r of STATE.sales){
+      const s = studioByErp.get(r.erp);
+      if(!s) continue;
+      let changed = false;
+      if(s.backendType && r.defaultCategory !== s.backendType){
+        r.defaultCategory = s.backendType; changed = true;
+      }
+      if(s.brand && r.brand !== s.brand){
+        r.brand = s.brand; changed = true;
+      }
+      if(s.category && r.category !== s.category){
+        r.category = s.category;
+        r.categoryRecognized = canonicalCategory(s.category) !== null;
+        changed = true;
+      }
+      if(changed) reassigned++;
+    }
+    console.log('  Sales rows corrected from Studio master:', reassigned);
+
     status.textContent = `${STATE.studio.length.toLocaleString()} products`;
     status.classList.add('loaded');
 
@@ -1227,61 +1257,63 @@ function renderActivePills(){
 }
 
 /* ——— Cascading filter options ———
-   Recomputes which Branch / Main Category / Brand / Category options are *available*
-   given the current selections in the OTHER filter groups, and hides those that
-   are incompatible. Keeps active selections visible even if they'd be hidden,
-   so the user can always uncheck what they selected. */
+   Recomputes which Main Category / Brand / Category options are *available*
+   given the current selections in the OTHER filter groups.
+
+   KEY DESIGN: The Studio dump is the single source of truth for the
+   Backend-Type ↔ Brand ↔ Category relationships. Sales data contains
+   data-entry errors (typos like "Bonito Elecrical" under type_bonito_studio
+   when the master tags it as type_service) — we don't trust those mappings.
+   Sales data is only used for Branch availability (Studio has no Branch).
+
+   Selected values always stay visible so the user can un-tick them. */
 function updateFilterOptions(){
   const f = STATE.filters;
 
-  // For each group, compute the set of values that exist in rows passing
-  // the filters of the OTHER groups. We derive these from both sales and studio
-  // so dead-stock filters stay consistent too.
-  function availFor(skipGroup){
-    const branch = new Set(), def = new Set(), brand = new Set(), cat = new Set();
-
-    // Sales contribute branch, default, brand, category
-    for(let i=0;i<STATE.sales.length;i++){
-      const r = STATE.sales[i];
-      if(skipGroup!=='branch'   && f.branches.size   && !f.branches.has(r.branch)) continue;
-      if(skipGroup!=='default'  && f.defaults.size   && !f.defaults.has(r.defaultCategory)) continue;
-      if(skipGroup!=='brand'    && f.brands.size     && !f.brands.has(r.brand)) continue;
-      if(skipGroup!=='category' && f.categories.size && !f.categories.has(r.category)) continue;
-      branch.add(r.branch); def.add(r.defaultCategory);
-      if(r.brand) brand.add(r.brand);
-      if(r.category) cat.add(r.category);
-    }
-    // Studio contributes brand, category, default (but not branch — Studio has city, not branch)
+  // Build brand/category/type options from the STUDIO dump only.
+  // For each target group, filter studio rows by the OTHER groups' selections
+  // and collect the unique values.
+  function studioAvail(skipGroup){
+    const def = new Set(), brand = new Set(), cat = new Set();
     for(let i=0;i<STATE.studio.length;i++){
       const s = STATE.studio[i];
       if(skipGroup!=='default'  && f.defaults.size   && !f.defaults.has(s.backendType)) continue;
-      if(skipGroup!=='brand'    && f.brands.size     && !f.brands.has(s.brand)) continue;
-      if(skipGroup!=='category' && f.categories.size && !f.categories.has(s.category)) continue;
-      if(s.brand) brand.add(s.brand);
-      if(s.category) cat.add(s.category);
-      def.add(s.backendType);
+      if(skipGroup!=='brand'    && f.brands.size     && !f.brands.has(s.brand))         continue;
+      if(skipGroup!=='category' && f.categories.size && !f.categories.has(s.category))  continue;
+      if(s.backendType) def.add(s.backendType);
+      if(s.brand)       brand.add(s.brand);
+      if(s.category)    cat.add(s.category);
     }
-    return {branch, def, brand, cat};
+    return {def, brand, cat};
   }
 
-  // Helper: hide/show each checkbox label based on the available set, but
-  // always keep selections visible (even if now incompatible) so user can toggle off.
+  // Branch availability from SALES (Studio has no branch dimension).
+  // Filter by non-branch selections and collect the branches that remain.
+  function salesBranchAvail(){
+    const branch = new Set();
+    for(let i=0;i<STATE.sales.length;i++){
+      const r = STATE.sales[i];
+      if(f.defaults.size   && !f.defaults.has(r.defaultCategory)) continue;
+      if(f.brands.size     && !f.brands.has(r.brand))             continue;
+      if(f.categories.size && !f.categories.has(r.category))      continue;
+      if(r.branch) branch.add(r.branch);
+    }
+    return branch;
+  }
+
   function apply(groupId, availableSet, selectedSet){
-    let visibleCount = 0;
     document.querySelectorAll('#'+groupId+' label').forEach(l=>{
       const v = l.dataset.val;
       const shouldShow = availableSet.has(v) || selectedSet.has(v);
       l.classList.toggle('hidden-cascade', !shouldShow);
       applyVisibility(l);
-      if(shouldShow) visibleCount++;
     });
-    return visibleCount;
   }
 
-  apply('f-branch',   availFor('branch').branch,  f.branches);
-  apply('f-default',  availFor('default').def,    f.defaults);
-  apply('f-brand',    availFor('brand').brand,    f.brands);
-  apply('f-category', availFor('category').cat,   f.categories);
+  apply('f-branch',   salesBranchAvail(),      f.branches);
+  apply('f-default',  studioAvail('default').def,    f.defaults);
+  apply('f-brand',    studioAvail('brand').brand,    f.brands);
+  apply('f-category', studioAvail('category').cat,   f.categories);
 }
 
 /* ——— aggregations + charts ——— */
