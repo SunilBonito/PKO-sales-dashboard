@@ -217,6 +217,10 @@
   .badge-studio{background:rgba(200,161,61,.15);color:#8a6e22}
   .badge-service{background:rgba(46,74,58,.1);color:var(--accent-2)}
   .badge-others{background:rgba(122,118,109,.15);color:var(--muted)}
+  .badge-shopify{
+    background:rgba(46,74,58,.12);color:#1b5f3e;
+    font-weight:500;letter-spacing:.04em;
+  }
 
   /* tabs for bottom section */
   .tabs{display:flex;gap:0;border-bottom:1px solid var(--line);margin-bottom:16px}
@@ -369,6 +373,13 @@
       <span>Exclude one-off products (containing "PID")</span>
     </label>
 
+    <h3>Shopify <button class="clear-link" data-clear="shopify">reset</button></h3>
+    <div class="filter-group" id="f-shopify">
+      <label><input type="radio" name="shopifyFilter" value="all" checked><span>All products</span></label>
+      <label><input type="radio" name="shopifyFilter" value="yes"><span>On Shopify only</span></label>
+      <label><input type="radio" name="shopifyFilter" value="no"><span>Not on Shopify</span></label>
+    </div>
+
     <h3>Branch <button class="clear-link" data-clear="branch">clear</button></h3>
     <div class="filter-group" id="f-branch"></div>
 
@@ -480,7 +491,7 @@
             <table id="tbl-dead">
               <thead><tr>
                 <th>Variant Name</th><th>Category</th><th>Brand</th>
-                <th>Backend Type</th><th>ERP Code</th>
+                <th>Backend Type</th><th>ERP Code</th><th>Shopify</th>
               </tr></thead>
               <tbody></tbody>
             </table>
@@ -502,7 +513,7 @@
             <table id="tbl-fast">
               <thead><tr>
                 <th>Product Name</th><th>Category</th><th>Brand</th>
-                <th>ERP Code</th><th class="num">Projects</th><th class="num">Qty</th><th class="num">Revenue (₹)</th>
+                <th>ERP Code</th><th class="num">Projects</th><th class="num">Qty</th><th class="num">Revenue (₹)</th><th>Shopify</th>
               </tr></thead>
               <tbody></tbody>
             </table>
@@ -524,7 +535,7 @@
             <table id="tbl-slow">
               <thead><tr>
                 <th>Product Name</th><th>Category</th><th>Brand</th>
-                <th>ERP Code</th><th class="num">Projects</th><th class="num">Qty</th><th class="num">Revenue (₹)</th>
+                <th>ERP Code</th><th class="num">Projects</th><th class="num">Qty</th><th class="num">Revenue (₹)</th><th>Shopify</th>
               </tr></thead>
               <tbody></tbody>
             </table>
@@ -579,6 +590,7 @@ const STATE = {
     branches:new Set(), brands:new Set(), categories:new Set(),
     defaults:new Set(), dateFrom:null, dateTo:null,
     excludePid:true,
+    shopifyFilter:'all',
   },
   charts: {},
   lastDead: [], lastFast: [], lastSlow: [],   // cached for CSV download
@@ -752,6 +764,7 @@ async function init(){
       bngSp: parseFloat(r['BNG SP'])||0,
       mumSp: parseFloat(r['MUM SP'])||0,
       status: r['Status']||'',
+      onShopify: /^\s*yes\s*$/i.test(r['Shopify Products']||''),
     }));
 
     // Diagnostic: log data health to console so we can debug if dead stock looks wrong
@@ -771,6 +784,7 @@ async function init(){
 
     // ——— Pre-compute index caches (done ONCE, dramatically speeds up refresh) ———
     STATE._studioErpSet = new Set(STATE.studio.map(r=>r.erp).filter(Boolean));
+    STATE._shopifyErpSet = new Set(STATE.studio.filter(r=>r.onShopify).map(r=>r.erp).filter(Boolean));
 
     // ——— Trust the Studio dump as the source of truth for
     //     brand ↔ category ↔ backend-type relationships.
@@ -885,6 +899,14 @@ function buildFilters(){
   pidCb.checked = STATE.filters.excludePid;
   pidCb.addEventListener('change', e=>{ STATE.filters.excludePid = e.target.checked; scheduleRefresh(); });
 
+  // Shopify radio filter
+  document.querySelectorAll('input[name="shopifyFilter"]').forEach(radio=>{
+    radio.addEventListener('change', e=>{
+      STATE.filters.shopifyFilter = e.target.value;
+      scheduleRefresh();
+    });
+  });
+
   // Brand/category searches
   document.getElementById('s-brand').addEventListener('input',e=>filterChecklist('f-brand',e.target.value));
   document.getElementById('s-category').addEventListener('input',e=>filterChecklist('f-category',e.target.value));
@@ -897,6 +919,10 @@ function buildFilters(){
       if(grp === 'date'){
         df.value = toISO(min); dt.value = toISO(max);
         STATE.filters.dateFrom = min; STATE.filters.dateTo = max;
+      } else if(grp === 'shopify'){
+        STATE.filters.shopifyFilter = 'all';
+        const allRadio = document.querySelector('input[name="shopifyFilter"][value="all"]');
+        if(allRadio) allRadio.checked = true;
       } else if(FILTER_GROUPS[grp]){
         STATE.filters[FILTER_GROUPS[grp].setKey].clear();
         document.querySelectorAll('#'+FILTER_GROUPS[grp].groupId+' input[type=checkbox]')
@@ -914,6 +940,9 @@ function buildFilters(){
     STATE.filters.dateFrom = min; STATE.filters.dateTo = max;
     STATE.filters.excludePid = true;
     pidCb.checked = true;
+    STATE.filters.shopifyFilter = 'all';
+    const allRadio = document.querySelector('input[name="shopifyFilter"][value="all"]');
+    if(allRadio) allRadio.checked = true;
     refresh();
   };
   document.getElementById('resetBtn').addEventListener('click', resetAll);
@@ -1044,10 +1073,13 @@ function applySalesFilters(rows){
 }
 function applyStudioFilters(rows){
   const f = STATE.filters;
+  const shopFilter = f.shopifyFilter;  // 'all' | 'yes' | 'no'
   return rows.filter(r=>{
     if(f.brands.size     && !f.brands.has(r.brand)) return false;
     if(f.categories.size && !f.categories.has(r.category)) return false;
     if(f.defaults.size   && !f.defaults.has(r.backendType)) return false;
+    if(shopFilter === 'yes' && !r.onShopify) return false;
+    if(shopFilter === 'no'  && r.onShopify)  return false;
     return true;
   });
 }
@@ -1486,7 +1518,7 @@ function renderMonthTable(sales){
 function renderDeadTable(dead){
   const rows = dead.slice(0,500);
   const tb = document.querySelector('#tbl-dead tbody');
-  if(!rows.length){ tb.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No dead stock under current filters</td></tr>'; return; }
+  if(!rows.length){ tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No dead stock under current filters</td></tr>'; return; }
   tb.innerHTML = rows.map(r=>`
     <tr>
       <td>${escapeHtml(r.variantName||r.productName)}</td>
@@ -1494,13 +1526,15 @@ function renderDeadTable(dead){
       <td>${escapeHtml(r.brand)}</td>
       <td><span class="badge ${BADGE_CLASS[r.backendType]||''}">${DEFAULT_LABELS[r.backendType]||r.backendType}</span></td>
       <td class="mono" style="font-size:12px">${escapeHtml(r.erp)}</td>
+      <td>${r.onShopify ? '<span class="badge badge-shopify">Yes</span>' : '<span style="color:var(--muted)">—</span>'}</td>
     </tr>`).join('');
 }
 
 function renderMovementTable(tblId, rows){
   const top = rows.slice(0,500);
   const tb = document.querySelector('#'+tblId+' tbody');
-  if(!top.length){ tb.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">No products under current filters</td></tr>'; return; }
+  if(!top.length){ tb.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">No products under current filters</td></tr>'; return; }
+  const shopifySet = STATE._shopifyErpSet || new Set();
   tb.innerHTML = top.map(r=>`
     <tr>
       <td>${escapeHtml(r.productName)}</td>
@@ -1510,6 +1544,7 @@ function renderMovementTable(tblId, rows){
       <td class="num">${r.projects}</td>
       <td class="num">${r.qty.toLocaleString('en-IN',{maximumFractionDigits:1})}</td>
       <td class="num">${fmtINR(r.revenue)}</td>
+      <td>${shopifySet.has(r.erp) ? '<span class="badge badge-shopify">Yes</span>' : '<span style="color:var(--muted)">—</span>'}</td>
     </tr>`).join('');
     function renderDiscontinuedTable(rows){
   const top = rows.slice(0,500);
@@ -1568,13 +1603,15 @@ function todayStamp(){
 }
 function downloadCsv(which){
   const stamp = todayStamp();
+  const shopifySet = STATE._shopifyErpSet || new Set();
   if(which==='dead'){
     const rows = STATE.lastDead.map(r=>[
       r.variantName||r.productName, r.productName, r.category, r.brand,
       DEFAULT_LABELS[r.backendType]||r.backendType, r.erp, r.city||'',
+      r.onShopify ? 'Yes' : '',
     ]);
     const csv = toCsv(
-      ['Variant Name','Product Name','Category','Brand','Backend Type','ERP Code','City'],
+      ['Variant Name','Product Name','Category','Brand','Backend Type','ERP Code','City','On Shopify'],
       rows
     );
     saveFile(`dead_stock_${stamp}.csv`, csv);
@@ -1584,9 +1621,10 @@ function downloadCsv(which){
       r.productName, r.category, r.brand, r.erp,
       DEFAULT_LABELS[r.defaultCategory]||r.defaultCategory,
       r.projects, r.qty.toFixed(2), r.revenue.toFixed(2),
+      shopifySet.has(r.erp) ? 'Yes' : '',
     ]);
     const csv = toCsv(
-      ['Product Name','Category','Brand','ERP Code','Backend Type','Projects','Qty','Revenue (INR)'],
+      ['Product Name','Category','Brand','ERP Code','Backend Type','Projects','Qty','Revenue (INR)','On Shopify'],
       rows
     );
     saveFile(`${which}_moving_${stamp}.csv`, csv);
