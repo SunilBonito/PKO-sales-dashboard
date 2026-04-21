@@ -759,10 +759,9 @@ function buildFilters(){
     ...STATE.sales.map(r=>r.brand),
     ...STATE.studio.map(r=>r.brand),
   ])].filter(Boolean).sort();
-  const cats     = [...new Set([
-    ...STATE.sales.map(r=>r.category),
-    ...STATE.studio.map(r=>r.category),
-  ])].filter(Boolean).sort();
+  const cats = [...new Set(
+  STATE.studio.map(r => (r.category || '').trim())
+)].filter(Boolean).sort();
 
   renderCheckGroup('f-branch', branches, STATE.filters.branches);
   renderCheckGroup('f-default', defaults, STATE.filters.defaults, v=>DEFAULT_LABELS[v]||v);
@@ -929,7 +928,14 @@ function applySalesFilters(rows){
     if(hasBranch && !branchSet.has(r.branch)) continue;
     if(hasBrand  && !brandSet.has(r.brand)) continue;
     if(hasCat    && !catSet.has(r.category)) continue;
-    if(hasDef    && !defSet.has(r.defaultCategory)) continue;
+    if(hasDef){
+  if(!defSet.has(r.defaultCategory)) continue;
+
+  // 🔥 extra protection: remove service leakage
+  if(defSet.has('type_bonito_studio') && r.defaultCategory !== 'type_bonito_studio'){
+    continue;
+  }
+}
     out.push(r);
   }
   return out;
@@ -1253,7 +1259,16 @@ function drawDefaultChart(sales){
 
 function drawCategoryChart(sales){
   const m = new Map();
-  sales.forEach(r=> m.set(r.category, (m.get(r.category)||0) + r.qty));
+    sales.forEach(r=>{
+  if(STATE.filters.defaults.size &&
+     !STATE.filters.defaults.has(r.defaultCategory)) return;
+
+  // prevent services leakage
+  if(STATE.filters.defaults.has('type_bonito_studio') &&
+     r.defaultCategory !== 'type_bonito_studio') return;
+
+  m.set(r.category, (m.get(r.category)||0) + r.qty);
+});
   const data = [...m.entries()].map(([k,v])=>({k,v}))
     .sort((a,b)=>b.v-a.v).slice(0,12);
 
