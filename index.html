@@ -440,8 +440,8 @@
 
       <div class="grid g-3">
         <div class="card">
-          <h2>Top Categories by Quantity Sold</h2>
-          <div class="card-sub">Lakhs · horizontal leaderboard (top 12)</div>
+          <h2>Top Categories by Revenue</h2>
+          <div class="card-sub">₹ Crores · horizontal leaderboard (top 12)</div>
           <div class="chart-wrap tall"><canvas id="chart-category"></canvas></div>
           <div class="chart-hint">click a category to filter</div>
         </div>
@@ -606,6 +606,62 @@ const BADGE_CLASS = {
   'type_others':'badge-others',
 };
 
+/* ——— Canonical category whitelist ———
+   The CSV data contains typos, stray spaces, and legacy category names.
+   We normalize & whitelist so the UI only shows real categories.
+   To add a new category, just append to this list. */
+const CANONICAL_CATEGORIES = [
+  'Wardrobe Accessories','Internal Tandem','Carpentry','MDF Beading','False ceiling',
+  'Home Services','Acrylic Sheet','Modular Furniture','Transportation','Civil',
+  'POP Cornice','Handles','Wallpapers','Wooden Leg','Cushion',
+  'Kitchen Accessories ( Tall Unit )','Laminates','Saint Gobain Profile',
+  'Kitchen Accessories','Edgebanding','Painting','Hardware','Panels','Quartz',
+  'Ceiling Lights','Concealed Lights','Spot lights','Services','Wooden Flooring',
+  'Inbuilt Microwave Oven','Dishwasher','Inbuilt Top','Chimney','Sink',
+  'Decor lights','Wall Lights','Hanging/Pendent Lights','Membrane Finish','Lights',
+  'Glass Partition','Panel Lights','Focus Light','PU Finish','Microwave Oven',
+  'Appliances','Installation','Modular','Other Hardwares',
+  'Kitchen Accessories ( Wall Unit )','Granite','PU Shutter','Cleaning',
+  'Profile Handles','Kitchen Accessories ( Corner Units )','GK Handles',
+  'Sarom Platinum Swatches','Aluminium Profile Shutter','Headboard','Shelving System',
+  'Hardware.','SS Strip','Groove Shutters','Cots','Bed','Others','Home Automation',
+  'Home Decor','Accessories','Dining Table','Chairs','Storage Unit','Sofa',
+  'Metal Fabrication','Table','Side Tables','CNC with Duco','Glass & Mirror',
+  'ODP Cabinet','GK Wallpapers','Safety Door','Gold','Platinum','Diamond',
+  'Painting Services','Crystal Acrylic Finish','Crystal Acrylic Shutter',
+  'Led Mirrors','Decorative Door','Solid Wooden Beading','Royal Touche Laminates',
+  'Designer Glass','Ottomans & Stools','Coffee Tables','Bar Closet','Sliding System',
+  'Outdoor Loose Furniture','Loose Furniture','Reference Library','Charcoal Beading',
+  'Sofa cum Bed','Aadeshwar Swatches','Wall Arts','Furniture lights','WPC Rafters',
+  'Aristo Shutter ( without carcass )','Recliners','Groove Panel','Bonito Edge Profile',
+  'Accessories(Loose Furniture)','Dining','Bonito Legs','Imported Glass',
+  'LED Bulbs and Strips','Acrylic','Aluminum Profile Partition','Ibed Swatches',
+  'Safe Locker','Kitchen Hardware','Cooktop','Hob','Inbuilt Oven','Pooja Unit',
+  'Febonic Swatches','Invisible Bed','New Point Creation',
+  'Switchboard Shifting & Modification','Board Closing & Termination',
+  'General Electrical Work','Creation / Shifting of Fan Point','Light Installation',
+  'Light Point Creation / Shifting','Removal of Fitting','Bed Fitting',
+  'Sarom Diamond Swatches','Sarom Gold Swatches','Membrane Shutters','Offers',
+  'Rug','Laminates 0.8mm','Prelam Edgebanding','Soisu Swatches','Benches','Console',
+];
+
+// Build lookup: normalized-lowercase → canonical name (handles typos, trailing spaces)
+const CATEGORY_CANONICAL_MAP = (()=>{
+  const map = new Map();
+  CANONICAL_CATEGORIES.forEach(c=>{
+    const k = c.trim().toLowerCase().replace(/\s+/g,' ').replace(/\.+$/,'');
+    map.set(k, c);
+  });
+  return map;
+})();
+
+// Map any raw category string to its canonical form, or null if not recognized
+function canonicalCategory(raw){
+  if(!raw) return null;
+  const k = String(raw).trim().toLowerCase().replace(/\s+/g,' ').replace(/\.+$/,'');
+  return CATEGORY_CANONICAL_MAP.get(k) || null;
+}
+
 /* ———  helpers ——— */
 const fmtCr  = v => (v/1e7).toLocaleString('en-IN',{maximumFractionDigits:2, minimumFractionDigits:2});
 const fmtL   = v => (v/1e5).toLocaleString('en-IN',{maximumFractionDigits:2, minimumFractionDigits:2});
@@ -674,7 +730,9 @@ async function init(){
       amount: parseFloat(r['Amount'])||0,
       itemName: r['Item Name']||'',
       productName: r['Product Name']||'',
-      category: (r['Category']||'').trim(),
+      category: canonicalCategory(r['Category']) || (r['Category']||'').trim(),
+      categoryRaw: (r['Category']||'').trim(),
+      categoryRecognized: canonicalCategory(r['Category']) !== null,
       brand: (r['Brand']||'').trim(),
       defaultCategory: (r['Default Category']||'').trim(),
       isPid: isPid(r),
@@ -686,7 +744,9 @@ async function init(){
       variantName: r['Variant Name']||'',
       erp: normErp(r['ERP Code']),
       brand: (r['Brand']||'').trim(),
-      category: (r['Category']||'').trim(),
+      category: canonicalCategory(r['Category']) || (r['Category']||'').trim(),
+      categoryRaw: (r['Category']||'').trim(),
+      categoryRecognized: canonicalCategory(r['Category']) !== null,
       backendType: (r['Backend Product Types']||'').trim(),
       city: r['City']||'',
       bngSp: parseFloat(r['BNG SP'])||0,
@@ -759,9 +819,12 @@ function buildFilters(){
     ...STATE.sales.map(r=>r.brand),
     ...STATE.studio.map(r=>r.brand),
   ])].filter(Boolean).sort();
-  const cats = [...new Set(
-  STATE.studio.map(r => (r.category || '').trim())
-)].filter(Boolean).sort();
+  // Only show canonical categories that actually appear in the data
+  const presentCats = new Set([
+    ...STATE.sales.map(r=>r.category),
+    ...STATE.studio.map(r=>r.category),
+  ]);
+  const cats = CANONICAL_CATEGORIES.filter(c=>presentCats.has(c));
 
   renderCheckGroup('f-branch', branches, STATE.filters.branches);
   renderCheckGroup('f-default', defaults, STATE.filters.defaults, v=>DEFAULT_LABELS[v]||v);
@@ -1258,17 +1321,13 @@ function drawDefaultChart(sales){
 }
 
 function drawCategoryChart(sales){
+  // Aggregate REVENUE by category; skip unrecognized categories so junk doesn't dominate the chart.
   const m = new Map();
-    sales.forEach(r=>{
-  if(STATE.filters.defaults.size &&
-     !STATE.filters.defaults.has(r.defaultCategory)) return;
-
-  // prevent services leakage
-  if(STATE.filters.defaults.has('type_bonito_studio') &&
-     r.defaultCategory !== 'type_bonito_studio') return;
-
-  m.set(r.category, (m.get(r.category)||0) + r.qty);
-});
+  for(let i=0;i<sales.length;i++){
+    const r = sales[i];
+    if(!r.categoryRecognized) continue;   // skip data-entry typos & legacy names
+    m.set(r.category, (m.get(r.category)||0) + r.amount);
+  }
   const data = [...m.entries()].map(([k,v])=>({k,v}))
     .sort((a,b)=>b.v-a.v).slice(0,12);
 
@@ -1277,7 +1336,7 @@ function drawCategoryChart(sales){
   STATE.charts.cat = new Chart(ctx,{
     type:'bar',
     data:{labels:data.map(d=>d.k),datasets:[{
-      data:data.map(d=>+(d.v/1e5).toFixed(2)),
+      data:data.map(d=>+(d.v/1e7).toFixed(2)),
       backgroundColor:PALETTE.blue, borderRadius:3,
       barThickness:'flex', maxBarThickness:22,
     }]},
@@ -1293,11 +1352,11 @@ function drawCategoryChart(sales){
         tooltip:{
           backgroundColor:PALETTE.ink, titleColor:'#fff', bodyColor:'#fff',
           padding:10, displayColors:false,
-          callbacks:{label:c=>c.parsed.x.toFixed(2)+' Lakh units · click to filter'},
+          callbacks:{label:c=>'₹ '+c.parsed.x.toFixed(2)+' Cr · click to filter'},
         },
       },
       scales:{
-        x:{grid:{color:PALETTE.line},ticks:{callback:v=>v+'L',font:{size:11}}},
+        x:{grid:{color:PALETTE.line},ticks:{callback:v=>'₹'+v+'Cr',font:{size:11}}},
         y:{grid:{display:false},ticks:{font:{size:11}}},
       },
     },
