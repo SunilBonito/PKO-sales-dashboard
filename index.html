@@ -480,7 +480,7 @@
             <table id="tbl-dead">
               <thead><tr>
                 <th>Variant Name</th><th>Category</th><th>Brand</th>
-                
+                <th>Backend Type</th><th>ERP Code</th>
               </tr></thead>
               <tbody></tbody>
             </table>
@@ -772,7 +772,7 @@ async function init(){
     // ——— Pre-compute index caches (done ONCE, dramatically speeds up refresh) ———
     STATE._studioErpSet = new Set(STATE.studio.map(r=>r.erp).filter(Boolean));
 
-    status.textContent = `${STATE.sales.length.toLocaleString()} sales rows · ${STATE.studio.length.toLocaleString()} products`;
+    status.textContent = `${STATE.studio.length.toLocaleString()} products`;
     status.classList.add('loaded');
 
     buildFilters();
@@ -965,10 +965,19 @@ function renderCheckGroup(id, values, targetSet, labeler){
   host.appendChild(frag);
 }
 function filterChecklist(id, q){
-  q = q.toLowerCase();
+  q = q.toLowerCase().trim();
   document.querySelectorAll('#'+id+' label').forEach(l=>{
-    l.style.display = l.dataset.val.toLowerCase().includes(q) ? 'flex':'none';
+    const matches = !q || l.dataset.val.toLowerCase().includes(q);
+    l.classList.toggle('hidden-search', !matches);
+    applyVisibility(l);
   });
+}
+
+// Single source of truth: a label is visible iff neither cascade nor search has hidden it.
+function applyVisibility(label){
+  const hidden = label.classList.contains('hidden-cascade')
+              || label.classList.contains('hidden-search');
+  label.style.display = hidden ? 'none' : 'flex';
 }
 
 /* ——— filter predicates (tight for-loops; faster than .filter on large arrays) ——— */
@@ -1139,6 +1148,7 @@ document.getElementById('cnt-discontinued').textContent =
   }
 
   renderActivePills();
+  updateFilterOptions();
   drawMonthChart(sales);
   drawDefaultChart(sales);
   drawCategoryChart(sales);
@@ -1214,6 +1224,64 @@ function renderActivePills(){
       refresh();
     });
   });
+}
+
+/* ——— Cascading filter options ———
+   Recomputes which Branch / Main Category / Brand / Category options are *available*
+   given the current selections in the OTHER filter groups, and hides those that
+   are incompatible. Keeps active selections visible even if they'd be hidden,
+   so the user can always uncheck what they selected. */
+function updateFilterOptions(){
+  const f = STATE.filters;
+
+  // For each group, compute the set of values that exist in rows passing
+  // the filters of the OTHER groups. We derive these from both sales and studio
+  // so dead-stock filters stay consistent too.
+  function availFor(skipGroup){
+    const branch = new Set(), def = new Set(), brand = new Set(), cat = new Set();
+
+    // Sales contribute branch, default, brand, category
+    for(let i=0;i<STATE.sales.length;i++){
+      const r = STATE.sales[i];
+      if(skipGroup!=='branch'   && f.branches.size   && !f.branches.has(r.branch)) continue;
+      if(skipGroup!=='default'  && f.defaults.size   && !f.defaults.has(r.defaultCategory)) continue;
+      if(skipGroup!=='brand'    && f.brands.size     && !f.brands.has(r.brand)) continue;
+      if(skipGroup!=='category' && f.categories.size && !f.categories.has(r.category)) continue;
+      branch.add(r.branch); def.add(r.defaultCategory);
+      if(r.brand) brand.add(r.brand);
+      if(r.category) cat.add(r.category);
+    }
+    // Studio contributes brand, category, default (but not branch — Studio has city, not branch)
+    for(let i=0;i<STATE.studio.length;i++){
+      const s = STATE.studio[i];
+      if(skipGroup!=='default'  && f.defaults.size   && !f.defaults.has(s.backendType)) continue;
+      if(skipGroup!=='brand'    && f.brands.size     && !f.brands.has(s.brand)) continue;
+      if(skipGroup!=='category' && f.categories.size && !f.categories.has(s.category)) continue;
+      if(s.brand) brand.add(s.brand);
+      if(s.category) cat.add(s.category);
+      def.add(s.backendType);
+    }
+    return {branch, def, brand, cat};
+  }
+
+  // Helper: hide/show each checkbox label based on the available set, but
+  // always keep selections visible (even if now incompatible) so user can toggle off.
+  function apply(groupId, availableSet, selectedSet){
+    let visibleCount = 0;
+    document.querySelectorAll('#'+groupId+' label').forEach(l=>{
+      const v = l.dataset.val;
+      const shouldShow = availableSet.has(v) || selectedSet.has(v);
+      l.classList.toggle('hidden-cascade', !shouldShow);
+      applyVisibility(l);
+      if(shouldShow) visibleCount++;
+    });
+    return visibleCount;
+  }
+
+  apply('f-branch',   availFor('branch').branch,  f.branches);
+  apply('f-default',  availFor('default').def,    f.defaults);
+  apply('f-brand',    availFor('brand').brand,    f.brands);
+  apply('f-category', availFor('category').cat,   f.categories);
 }
 
 /* ——— aggregations + charts ——— */
@@ -1386,7 +1454,7 @@ function renderMonthTable(sales){
 function renderDeadTable(dead){
   const rows = dead.slice(0,500);
   const tb = document.querySelector('#tbl-dead tbody');
-  if(!rows.length){ tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No dead stock under current filters</td></tr>'; return; }
+  if(!rows.length){ tb.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px">No dead stock under current filters</td></tr>'; return; }
   tb.innerHTML = rows.map(r=>`
     <tr>
       <td>${escapeHtml(r.variantName||r.productName)}</td>
@@ -1394,7 +1462,6 @@ function renderDeadTable(dead){
       <td>${escapeHtml(r.brand)}</td>
       <td><span class="badge ${BADGE_CLASS[r.backendType]||''}">${DEFAULT_LABELS[r.backendType]||r.backendType}</span></td>
       <td class="mono" style="font-size:12px">${escapeHtml(r.erp)}</td>
-      <td class="num">${r.bngSp?fmtINR(r.bngSp):'—'}</td>
     </tr>`).join('');
 }
 
@@ -1472,11 +1539,10 @@ function downloadCsv(which){
   if(which==='dead'){
     const rows = STATE.lastDead.map(r=>[
       r.variantName||r.productName, r.productName, r.category, r.brand,
-      DEFAULT_LABELS[r.backendType]||r.backendType, r.erp,
-      r.bngSp||'', r.mumSp||'', r.city||'',
+      DEFAULT_LABELS[r.backendType]||r.backendType, r.erp, r.city||'',
     ]);
     const csv = toCsv(
-      ['Variant Name','Product Name','Category','Brand','Backend Type','ERP Code','BNG SP','MUM SP','City'],
+      ['Variant Name','Product Name','Category','Brand','Backend Type','ERP Code','City'],
       rows
     );
     saveFile(`dead_stock_${stamp}.csv`, csv);
