@@ -242,22 +242,105 @@
   .error-box h3{margin-top:0;font-family:'Fraunces',serif}
   .error-box code{background:var(--card);padding:2px 6px;border-radius:3px;font-size:12px}
 
+  /* Responsive: tablet */
   @media (max-width:1100px){
     .kpis{grid-template-columns:repeat(3,1fr)}
     .g-2,.g-3{grid-template-columns:1fr}
     main{grid-template-columns:1fr}
-    aside.filters{position:static;max-height:none;border-right:none;border-bottom:1px solid var(--line)}
+    aside.filters{
+      position:static;max-height:none;border-right:none;
+      border-bottom:1px solid var(--line);padding:20px 24px;
+    }
+    header.topbar{position:relative}
+    .canvas{padding:24px 28px 60px}
   }
+
+  /* Responsive: mobile */
+  @media (max-width:720px){
+    header.topbar{
+      padding:16px 18px 12px;flex-direction:column;
+      align-items:flex-start;gap:8px;
+    }
+    .title{font-size:22px}
+    .sub{font-size:11px}
+    .topbar-right{font-size:11px;flex-wrap:wrap}
+    .canvas{padding:18px 14px 48px}
+
+    /* Filters: collapsible drawer */
+    aside.filters{
+      padding:14px 16px;
+      max-height:none;
+    }
+    aside.filters h3{margin-top:14px;font-size:10px}
+    .filter-group{max-height:140px;font-size:13px}
+
+    /* KPI tiles — 2 per row on phones */
+    .kpis{grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px}
+    .kpi{padding:14px 12px 12px}
+    .kpi .k-label{font-size:9px;letter-spacing:.1em}
+    .kpi .k-value{font-size:22px}
+    .kpi .k-unit{font-size:10px;margin-top:4px}
+
+    /* Cards tighter */
+    .card{padding:16px 14px}
+    .card h2{font-size:14px}
+    .card .card-sub{font-size:10px;letter-spacing:.08em;margin-bottom:10px}
+    .chart-wrap{height:220px}
+    .chart-wrap.tall{height:280px}
+
+    /* Tables: hide less-critical columns, shrink font */
+    table{font-size:12px}
+    th,td{padding:7px 6px}
+    th{font-size:9.5px;letter-spacing:.06em}
+
+    /* Hide Brand column on the 3 product tables to fit phone screens */
+    #tbl-dead th:nth-child(3), #tbl-dead td:nth-child(3),
+    #tbl-fast th:nth-child(3), #tbl-fast td:nth-child(3),
+    #tbl-slow th:nth-child(3), #tbl-slow td:nth-child(3){display:none}
+    /* Hide Backend Type on dead-stock (still visible in tooltips), and Qty on fast/slow */
+    #tbl-dead th:nth-child(4), #tbl-dead td:nth-child(4){display:none}
+    #tbl-fast th:nth-child(6), #tbl-fast td:nth-child(6),
+    #tbl-slow th:nth-child(6), #tbl-slow td:nth-child(6){display:none}
+
+    /* Tab layout */
+    .tabs{flex-wrap:wrap}
+    .tab{padding:8px 10px;font-size:10px;letter-spacing:.06em}
+    .tab-actions{flex-direction:column;gap:10px;align-items:stretch}
+    .tab-actions .download-btn{align-self:flex-start}
+
+    /* Date inputs stack */
+    .date-row{flex-wrap:wrap}
+    .date-row input{min-width:130px}
+
+    /* Pill container */
+    .pills{gap:3px}
+    .pill{font-size:10.5px;padding:2px 6px}
+
+    /* Collapsible filters drawer on mobile */
+    .filters-toggle{display:inline-block !important}
+    aside.filters{display:none}
+    aside.filters.open{display:block}
+  }
+
+  .filters-toggle{
+    display:none;
+    background:var(--ink);color:var(--paper);
+    border:none;border-radius:4px;padding:6px 12px;
+    font-family:inherit;font-size:11px;letter-spacing:.08em;
+    text-transform:uppercase;cursor:pointer;
+  }
+  .filters-toggle:hover{background:var(--accent)}
 </style>
 </head>
 <body>
 
 <header class="topbar">
   <div>
-    <div class="title">Sales <em>Dashboard</em></div>
-    
+    <div class="title">PKO Sales <em>Dashboard</em></div>
+    <div class="sub mono">Studio offering × Project BOM — unified view</div>
   </div>
   <div class="topbar-right">
+    <button class="filters-toggle" id="filtersToggle" aria-label="Toggle filters">☰ Filters</button>
     <span id="status">Loading…</span>
     <span class="mono" id="lastRange">—</span>
   </div>
@@ -314,9 +397,9 @@
           <div class="k-unit">₹ Crores</div>
         </div>
         <div class="kpi k-gold">
-          <div class="k-label">Qty Sold</div>
-          <div class="k-value"><span id="kpi-qty">—</span></div>
-          <div class="k-unit">Lakhs</div>
+          <div class="k-label">Discontinued Revenue</div>
+          <div class="k-value"><span id="kpi-discontinued">—</span></div>
+          <div class="k-unit">₹ Cr · <span id="kpi-discontinued-sub">—</span></div>
         </div>
         <div class="kpi k-green">
           <div class="k-label">Total Projects</div>
@@ -348,7 +431,7 @@
           <div class="chart-hint">click a month to filter</div>
         </div>
         <div class="card">
-          <h2>Revenue by Main Category</h2>
+          <h2>Revenue by Backend Product Type</h2>
           <div class="card-sub">₹ Crores · per Default Category</div>
           <div class="chart-wrap"><canvas id="chart-default"></canvas></div>
           <div class="chart-hint">click a bar to filter by type</div>
@@ -598,6 +681,9 @@ async function init(){
       console.warn('[PKO Dashboard] Studio CSV loaded 0 rows! Check that Studio_Dump_for_PKO_Sales.csv exists and is a real CSV (not a Git LFS pointer).');
     }
 
+    // ——— Pre-compute index caches (done ONCE, dramatically speeds up refresh) ———
+    STATE._studioErpSet = new Set(STATE.studio.map(r=>r.erp).filter(Boolean));
+
     status.textContent = `${STATE.sales.length.toLocaleString()} sales rows · ${STATE.studio.length.toLocaleString()} products`;
     status.classList.add('loaded');
 
@@ -668,16 +754,16 @@ function buildFilters(){
   STATE._dateMin = min; STATE._dateMax = max;
 
   df.addEventListener('change', e=>{
-    STATE.filters.dateFrom = e.target.value?new Date(e.target.value):null; refresh();
+    STATE.filters.dateFrom = e.target.value?new Date(e.target.value):null; scheduleRefresh();
   });
   dt.addEventListener('change', e=>{
-    STATE.filters.dateTo = e.target.value?new Date(e.target.value+'T23:59:59'):null; refresh();
+    STATE.filters.dateTo = e.target.value?new Date(e.target.value+'T23:59:59'):null; scheduleRefresh();
   });
 
   // PID toggle
   const pidCb = document.getElementById('excludePid');
   pidCb.checked = STATE.filters.excludePid;
-  pidCb.addEventListener('change', e=>{ STATE.filters.excludePid = e.target.checked; refresh(); });
+  pidCb.addEventListener('change', e=>{ STATE.filters.excludePid = e.target.checked; scheduleRefresh(); });
 
   // Brand/category searches
   document.getElementById('s-brand').addEventListener('input',e=>filterChecklist('f-brand',e.target.value));
@@ -720,12 +806,26 @@ function buildFilters(){
       t.classList.add('active');
       document.querySelectorAll('.tab-pane').forEach(p=>p.style.display='none');
       document.getElementById('tab-'+t.dataset.tab).style.display='block';
+      // Lazy-render if data is stale
+      const stale = STATE._staleTabs || {};
+      const key = t.dataset.tab;
+      if(stale[key]){
+        if(key==='dead') renderDeadTable(stale.dead);
+        else renderMovementTable('tbl-'+key, stale[key]);
+        stale[key] = null;
+      }
     });
   });
 
   // CSV download buttons
   document.querySelectorAll('.download-btn[data-dl]').forEach(btn=>{
     btn.addEventListener('click', ()=> downloadCsv(btn.dataset.dl));
+  });
+
+  // Mobile filters toggle
+  const filtersEl = document.querySelector('aside.filters');
+  document.getElementById('filtersToggle').addEventListener('click', ()=>{
+    filtersEl.classList.toggle('open');
   });
 }
 
@@ -742,10 +842,9 @@ function toggleFilter(group, value){
       if(cb) cb.checked = set.has(value);
     }
   });
-  refresh();
+  scheduleRefresh();
 }
 function setDateToMonth(ymKey){
-  // ymKey like '2025-04' — zoom the date range to that month
   const [y,m] = ymKey.split('-').map(Number);
   const from = new Date(y, m-1, 1);
   const to = new Date(y, m, 0, 23,59,59);
@@ -753,12 +852,13 @@ function setDateToMonth(ymKey){
   STATE.filters.dateTo = to;
   document.getElementById('dateFrom').value = from.toISOString().slice(0,10);
   document.getElementById('dateTo').value = to.toISOString().slice(0,10);
-  refresh();
+  scheduleRefresh();
 }
 
 function renderCheckGroup(id, values, targetSet, labeler){
   const host = document.getElementById(id);
   host.innerHTML='';
+  const frag = document.createDocumentFragment();
   values.forEach(v=>{
     const id2 = id+'_'+v.replace(/[^a-z0-9]/gi,'_');
     const label = document.createElement('label');
@@ -767,10 +867,11 @@ function renderCheckGroup(id, values, targetSet, labeler){
     const cb = label.querySelector('input');
     cb.addEventListener('change',()=>{
       if(cb.checked) targetSet.add(v); else targetSet.delete(v);
-      refresh();
+      scheduleRefresh();
     });
-    host.appendChild(label);
+    frag.appendChild(label);
   });
+  host.appendChild(frag);
 }
 function filterChecklist(id, q){
   q = q.toLowerCase();
@@ -779,19 +880,30 @@ function filterChecklist(id, q){
   });
 }
 
-/* ——— filter predicates ——— */
+/* ——— filter predicates (tight for-loops; faster than .filter on large arrays) ——— */
 function applySalesFilters(rows){
   const f = STATE.filters;
-  return rows.filter(r=>{
-    if(f.excludePid && r.isPid) return false;
-    if(f.dateFrom && r.date < f.dateFrom) return false;
-    if(f.dateTo   && r.date > f.dateTo) return false;
-    if(f.branches.size   && !f.branches.has(r.branch)) return false;
-    if(f.brands.size     && !f.brands.has(r.brand)) return false;
-    if(f.categories.size && !f.categories.has(r.category)) return false;
-    if(f.defaults.size   && !f.defaults.has(r.defaultCategory)) return false;
-    return true;
-  });
+  const hasExcludePid = f.excludePid;
+  const dFrom = f.dateFrom ? +f.dateFrom : null;
+  const dTo   = f.dateTo   ? +f.dateTo   : null;
+  const hasBranch = f.branches.size > 0,   branchSet = f.branches;
+  const hasBrand  = f.brands.size > 0,     brandSet  = f.brands;
+  const hasCat    = f.categories.size > 0, catSet    = f.categories;
+  const hasDef    = f.defaults.size > 0,   defSet    = f.defaults;
+  const out = [];
+  for(let i=0;i<rows.length;i++){
+    const r = rows[i];
+    if(hasExcludePid && r.isPid) continue;
+    const t = +r.date;
+    if(dFrom !== null && t < dFrom) continue;
+    if(dTo !== null && t > dTo) continue;
+    if(hasBranch && !branchSet.has(r.branch)) continue;
+    if(hasBrand  && !brandSet.has(r.brand)) continue;
+    if(hasCat    && !catSet.has(r.category)) continue;
+    if(hasDef    && !defSet.has(r.defaultCategory)) continue;
+    out.push(r);
+  }
+  return out;
 }
 function applyStudioFilters(rows){
   const f = STATE.filters;
@@ -804,36 +916,63 @@ function applyStudioFilters(rows){
 }
 
 /* ——— refresh / render ——— */
+let _refreshTimer = null;
+function scheduleRefresh(){
+  if(_refreshTimer) clearTimeout(_refreshTimer);
+  _refreshTimer = setTimeout(()=>{ _refreshTimer=null; refresh(); }, 50);
+}
+
 function refresh(){
+  const t0 = performance.now();
   const sales  = applySalesFilters(STATE.sales);
   const studio = applyStudioFilters(STATE.studio);
+  const studioErpSet = STATE._studioErpSet;
 
-  // KPIs
-  const totalRev = sales.reduce((s,r)=>s+r.amount,0);
-  const totalQty = sales.reduce((s,r)=>s+r.qty,0);
-  const projects = new Set(sales.map(r=>r.projectNo)).size;
+  // Single-pass KPI aggregation
+  let totalRev = 0;
+  let discontinuedRev = 0;
+  const projectsSet = new Set();
+  const salesErps = new Set();
+  const discontinuedProjects = new Set();
+  for(let i=0;i<sales.length;i++){
+    const r = sales[i];
+    totalRev += r.amount;
+    projectsSet.add(r.projectNo);
+    if(r.erp){
+      salesErps.add(r.erp);
+      if(!studioErpSet.has(r.erp)){
+        discontinuedRev += r.amount;
+        discontinuedProjects.add(r.projectNo);
+      }
+    }
+  }
+  const projects = projectsSet.size;
 
-  // dead stock: studio ERPs not present in sales (respecting filters)
-  const salesErps = new Set(sales.map(r=>r.erp).filter(Boolean));
-  const dead = studio.filter(s=>s.erp && !salesErps.has(s.erp));
+  // Dead stock: studio ERPs not present in filtered sales
+  const dead = studio.filter(s=> s.erp && !salesErps.has(s.erp));
 
-  // movement: count distinct projects per ERP across filtered sales
-  const projByErp = {};
-  sales.forEach(r=>{
-    if(!r.erp) return;
-    (projByErp[r.erp] = projByErp[r.erp] || new Set()).add(r.projectNo);
-  });
-  const movementRows = Object.entries(projByErp).map(([erp, projSet])=>{
-    const rs = sales.filter(r=>r.erp===erp);
-    return {
-      erp, projects: projSet.size,
-      qty: rs.reduce((s,r)=>s+r.qty,0),
-      revenue: rs.reduce((s,r)=>s+r.amount,0),
-      productName: rs[0].productName || rs[0].itemName,
-      category: rs[0].category, brand: rs[0].brand,
-      defaultCategory: rs[0].defaultCategory,
-    };
-  });
+  // Movement — SINGLE PASS aggregation (O(n) instead of O(n*k))
+  const movementMap = new Map();
+  for(let i=0;i<sales.length;i++){
+    const r = sales[i];
+    if(!r.erp) continue;
+    let m = movementMap.get(r.erp);
+    if(!m){
+      m = {erp:r.erp, projects:new Set(), qty:0, revenue:0,
+           productName:r.productName || r.itemName,
+           category:r.category, brand:r.brand, defaultCategory:r.defaultCategory};
+      movementMap.set(r.erp, m);
+    }
+    m.projects.add(r.projectNo);
+    m.qty += r.qty;
+    m.revenue += r.amount;
+  }
+  const movementRows = [];
+  movementMap.forEach(m => movementRows.push({
+    erp:m.erp, projects:m.projects.size, qty:m.qty, revenue:m.revenue,
+    productName:m.productName, category:m.category, brand:m.brand,
+    defaultCategory:m.defaultCategory,
+  }));
   const fast = movementRows.filter(r=>r.projects>5).sort((a,b)=>b.projects-a.projects);
   const slow = movementRows.filter(r=>r.projects<=5 && r.projects>0)
                            .sort((a,b)=>a.projects-b.projects || b.revenue-a.revenue);
@@ -844,7 +983,9 @@ function refresh(){
   STATE.lastSlow = slow;
 
   document.getElementById('kpi-revenue').textContent  = fmtCr(totalRev);
-  document.getElementById('kpi-qty').textContent      = fmtL(totalQty);
+  document.getElementById('kpi-discontinued').textContent = fmtCr(discontinuedRev);
+  document.getElementById('kpi-discontinued-sub').textContent =
+    `${fmtN(discontinuedProjects.size)} projects`;
   document.getElementById('kpi-projects').textContent = fmtN(projects);
   document.getElementById('kpi-dead').textContent     = fmtN(dead.length);
   document.getElementById('kpi-fast').textContent     = fmtN(fast.length);
@@ -868,9 +1009,20 @@ function refresh(){
   drawDefaultChart(sales);
   drawCategoryChart(sales);
   renderMonthTable(sales);
-  renderDeadTable(dead);
-  renderMovementTable('tbl-fast', fast);
-  renderMovementTable('tbl-slow', slow);
+
+  // Only render the table for the CURRENTLY VISIBLE tab — saves ~50% table render time
+  const activeTab = document.querySelector('.tab.active')?.dataset.tab || 'dead';
+  if(activeTab === 'dead') renderDeadTable(dead);
+  else if(activeTab === 'fast') renderMovementTable('tbl-fast', fast);
+  else if(activeTab === 'slow') renderMovementTable('tbl-slow', slow);
+  // Mark others as stale so they re-render on tab click
+  STATE._staleTabs = {
+    dead: activeTab !== 'dead' ? dead : null,
+    fast: activeTab !== 'fast' ? fast : null,
+    slow: activeTab !== 'slow' ? slow : null,
+  };
+
+  console.log('[PKO] refresh:', (performance.now()-t0).toFixed(1), 'ms');
 }
 
 /* ——— active filter pills ——— */
@@ -945,6 +1097,9 @@ function chartDefaults(){
   Chart.defaults.font.family = "'Inter', sans-serif";
   Chart.defaults.color = PALETTE.muted;
   Chart.defaults.borderColor = PALETTE.line;
+  // Animations are expensive on every refresh — disable for speed
+  Chart.defaults.animation = false;
+  Chart.defaults.transitions.active.animation.duration = 0;
 }
 chartDefaults();
 
