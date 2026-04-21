@@ -462,6 +462,7 @@
           <div class="tab active" data-tab="dead">Dead Stock <span class="tab-count" id="cnt-dead">0</span></div>
           <div class="tab" data-tab="fast">Fast Moving <span class="tab-count" id="cnt-fast">0</span></div>
           <div class="tab" data-tab="slow">Slow Moving <span class="tab-count" id="cnt-slow">0</span></div>
+          <div class="tab" data-tab="discontinued">Discontinued <span class="tab-count" id="cnt-discontinued">0</span></div>
         </div>
 
         <div id="tab-dead" class="tab-pane">
@@ -525,6 +526,33 @@
                 <th>Product Name</th><th>Category</th><th>Brand</th>
                 <th>ERP Code</th><th class="num">Projects</th><th class="num">Qty</th><th class="num">Revenue (₹)</th>
               </tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="tab-discontinued" class="tab-pane" style="display:none">
+          <div class="tab-actions">
+            <div>
+              <h2 style="margin:0 0 4px">Discontinued Products · Used in PKO but not in Studio</h2>
+              <div class="card-sub">top 500 shown</div>
+            </div>
+            <button class="download-btn" data-dl="discontinued">
+              Download CSV
+            </button>
+          </div>
+
+          <div class="scroll-table" style="max-height:480px">
+            <table id="tbl-discontinued">
+              <thead>
+                <tr>
+                  <th>Product Name</th>
+                  <th>Category</th>
+                  <th>Brand</th>
+                  <th>ERP Code</th>
+                  <th class="num">Projects</th>
+                  <th class="num">Revenue (₹)</th>
+                </tr>
+              </thead>
               <tbody></tbody>
             </table>
           </div>
@@ -811,7 +839,8 @@ function buildFilters(){
       const key = t.dataset.tab;
       if(stale[key]){
         if(key==='dead') renderDeadTable(stale.dead);
-        else renderMovementTable('tbl-'+key, stale[key]);
+        else if(key==='fast' || key==='slow') renderMovementTable('tbl-'+key, stale[key]);
+        else if(key==='discontinued') renderDiscontinuedTable(stale.discontinued);
         stale[key] = null;
       }
     });
@@ -927,6 +956,7 @@ function refresh(){
   const sales  = applySalesFilters(STATE.sales);
   const studio = applyStudioFilters(STATE.studio);
   const studioErpSet = STATE._studioErpSet;
+  
 
   // Single-pass KPI aggregation
   let totalRev = 0;
@@ -976,6 +1006,41 @@ function refresh(){
   const fast = movementRows.filter(r=>r.projects>5).sort((a,b)=>b.projects-a.projects);
   const slow = movementRows.filter(r=>r.projects<=5 && r.projects>0)
                            .sort((a,b)=>a.projects-b.projects || b.revenue-a.revenue);
+  // ===== DISCONTINUED PRODUCTS =====
+const discontinuedMap = new Map();
+
+for(let i=0;i<sales.length;i++){
+  const r = sales[i];
+
+  if(r.erp && !studioErpSet.has(r.erp)){
+    let d = discontinuedMap.get(r.erp);
+
+    if(!d){
+      d = {
+        erp: r.erp,
+        productName: r.productName || r.itemName,
+        category: r.category,
+        brand: r.brand,
+        projects: new Set(),
+        revenue: 0
+      };
+      discontinuedMap.set(r.erp, d);
+    }
+
+    d.projects.add(r.projectNo);
+    d.revenue += r.amount;
+  }
+}
+
+const discontinued = [...discontinuedMap.values()].map(d=>({
+  ...d,
+  projects: d.projects.size
+})).sort((a,b)=>b.revenue-a.revenue);
+
+STATE.lastDiscontinued = discontinued;
+
+document.getElementById('cnt-discontinued').textContent =
+  discontinued.length.toLocaleString();
 
   // cache for CSV downloads
   STATE.lastDead = dead;
@@ -1015,12 +1080,14 @@ function refresh(){
   if(activeTab === 'dead') renderDeadTable(dead);
   else if(activeTab === 'fast') renderMovementTable('tbl-fast', fast);
   else if(activeTab === 'slow') renderMovementTable('tbl-slow', slow);
+  else if(activeTab === 'discontinued') renderDiscontinuedTable(discontinued);
   // Mark others as stale so they re-render on tab click
   STATE._staleTabs = {
-    dead: activeTab !== 'dead' ? dead : null,
-    fast: activeTab !== 'fast' ? fast : null,
-    slow: activeTab !== 'slow' ? slow : null,
-  };
+  dead: activeTab !== 'dead' ? dead : null,
+  fast: activeTab !== 'fast' ? fast : null,
+  slow: activeTab !== 'slow' ? slow : null,
+  discontinued: activeTab !== 'discontinued' ? discontinued : null,
+};
 
   console.log('[PKO] refresh:', (performance.now()-t0).toFixed(1), 'ms');
 }
@@ -1271,6 +1338,26 @@ function renderMovementTable(tblId, rows){
       <td class="num">${r.qty.toLocaleString('en-IN',{maximumFractionDigits:1})}</td>
       <td class="num">${fmtINR(r.revenue)}</td>
     </tr>`).join('');
+    function renderDiscontinuedTable(rows){
+  const top = rows.slice(0,500);
+  const tb = document.querySelector('#tbl-discontinued tbody');
+
+  if(!top.length){
+    tb.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No discontinued products</td></tr>';
+    return;
+  }
+
+  tb.innerHTML = top.map(r=>`
+    <tr>
+      <td>${escapeHtml(r.productName)}</td>
+      <td>${escapeHtml(r.category)}</td>
+      <td>${escapeHtml(r.brand)}</td>
+      <td class="mono">${escapeHtml(r.erp)}</td>
+      <td class="num">${r.projects}</td>
+      <td class="num">₹ ${r.revenue.toLocaleString('en-IN')}</td>
+    </tr>
+  `).join('');
+}
 }
 
 function escapeHtml(s){
@@ -1331,7 +1418,23 @@ function downloadCsv(which){
       rows
     );
     saveFile(`${which}_moving_${stamp}.csv`, csv);
-  }
+  } else if(which==='discontinued'){
+  const rows = STATE.lastDiscontinued.map(r=>[
+    r.productName,
+    r.category,
+    r.brand,
+    r.erp,
+    r.projects,
+    r.revenue
+  ]);
+
+  const csv = toCsv(
+    ['Product Name','Category','Brand','ERP Code','Projects','Revenue'],
+    rows
+  );
+
+  saveFile(`discontinued_${todayStamp()}.csv`, csv);
+}
 }
 
 /* go */
