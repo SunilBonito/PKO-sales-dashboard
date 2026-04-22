@@ -1049,6 +1049,8 @@ function applySalesFilters(rows){
   const hasBrand  = f.brands.size > 0,     brandSet  = f.brands;
   const hasCat    = f.categories.size > 0, catSet    = f.categories;
   const hasDef    = f.defaults.size > 0,   defSet    = f.defaults;
+  const shopFilter = f.shopifyFilter;  // 'all' | 'yes' | 'no'
+  const shopifySet = STATE._shopifyErpSet || new Set();
   const out = [];
   for(let i=0;i<rows.length;i++){
     const r = rows[i];
@@ -1060,13 +1062,15 @@ function applySalesFilters(rows){
     if(hasBrand  && !brandSet.has(r.brand)) continue;
     if(hasCat    && !catSet.has(r.category)) continue;
     if(hasDef){
-  if(!defSet.has(r.defaultCategory)) continue;
-
-  // 🔥 extra protection: remove service leakage
-  if(defSet.has('type_bonito_studio') && r.defaultCategory !== 'type_bonito_studio'){
-    continue;
-  }
-}
+      if(!defSet.has(r.defaultCategory)) continue;
+      // 🔥 extra protection: remove service leakage
+      if(defSet.has('type_bonito_studio') && r.defaultCategory !== 'type_bonito_studio'){
+        continue;
+      }
+    }
+    // Shopify filter — matches against the product's ERP being in the Shopify set
+    if(shopFilter === 'yes' && !shopifySet.has(r.erp)) continue;
+    if(shopFilter === 'no'  &&  shopifySet.has(r.erp)) continue;
     out.push(r);
   }
   return out;
@@ -1253,6 +1257,8 @@ function renderActivePills(){
     });
   }
   if(!f.excludePid) pills.push({type:'Options', value:'Including PID products', group:'pid'});
+  if(f.shopifyFilter === 'yes') pills.push({type:'Shopify', value:'On Shopify only', group:'shopify'});
+  if(f.shopifyFilter === 'no')  pills.push({type:'Shopify', value:'Not on Shopify',  group:'shopify'});
 
   const wrap = document.getElementById('active-filters-wrap');
   const host = document.getElementById('active-pills');
@@ -1274,6 +1280,10 @@ function renderActivePills(){
       } else if(p.group === 'pid'){
         STATE.filters.excludePid = true;
         document.getElementById('excludePid').checked = true;
+      } else if(p.group === 'shopify'){
+        STATE.filters.shopifyFilter = 'all';
+        const allRadio = document.querySelector('input[name="shopifyFilter"][value="all"]');
+        if(allRadio) allRadio.checked = true;
       } else if(FILTER_GROUPS[p.group]){
         STATE.filters[FILTER_GROUPS[p.group].setKey].delete(p.raw || p.value);
         // reflect in checkboxes
