@@ -340,7 +340,7 @@
 
 <header class="topbar">
   <div>
-    <div class="title">iLab Sales Analysis <em>Dashboard</em></div>
+    <div class="title">iLab Sales Analysis<em>Dashboard</em></div>
     
   </div>
   <div class="topbar-right">
@@ -786,17 +786,18 @@ async function init(){
     STATE._studioErpSet = new Set(STATE.studio.map(r=>r.erp).filter(Boolean));
     STATE._shopifyErpSet = new Set(STATE.studio.filter(r=>r.onShopify).map(r=>r.erp).filter(Boolean));
 
-    // ——— Trust the Studio dump as the source of truth for
-    //     brand ↔ category ↔ backend-type relationships.
-    //     Sales CSV has data-entry issues (e.g. "Bonito Elecrical" typo tagged
-    //     as type_bonito_studio when it should be type_service). For every
-    //     sales row whose ERP exists in Studio, we override its
-    //     defaultCategory / brand / category from the Studio master. ———
+    // ——— Trust the Studio dump as the source of truth for everything:
+    //     brand ↔ category ↔ backend-type ↔ product name ↔ variant name.
+    //     Sales CSV has data-entry issues: typos like "Bonito Elecrical",
+    //     stale product names (e.g. ERP BD-VRM-2025-0209 shown as "Modular Bed"
+    //     in sales but correctly "Bonito Upholstered Bed - Maddox Fluted Bed
+    //     with Hydraulic Storage" in the Studio master). For every sales row
+    //     whose ERP exists in Studio, we override all these fields. ———
     const studioByErp = new Map();
     for(const s of STATE.studio){
       if(s.erp && !studioByErp.has(s.erp)) studioByErp.set(s.erp, s);
     }
-    let reassigned = 0;
+    let reassigned = 0, nameFixed = 0;
     for(const r of STATE.sales){
       const s = studioByErp.get(r.erp);
       if(!s) continue;
@@ -812,9 +813,19 @@ async function init(){
         r.categoryRecognized = canonicalCategory(s.category) !== null;
         changed = true;
       }
+      // Product name: always trust Studio if present. Prefer variantName
+      // (most descriptive, e.g. "Maddox Fluted Queen Size Bed with Hydraulic
+      // Storage - Gold") over the shorter productName (e.g. just "Bed").
+      const studioName = s.variantName || s.productName;
+      if(studioName && r.productName !== studioName){
+        r.productName = studioName;
+        r.itemName    = studioName;
+        nameFixed++; changed = true;
+      }
       if(changed) reassigned++;
     }
-    console.log('  Sales rows corrected from Studio master:', reassigned);
+    console.log('  Sales rows corrected from Studio master:', reassigned,
+                '(of which name-fixes:', nameFixed + ')');
 
     status.textContent = `${STATE.studio.length.toLocaleString()} products`;
     status.classList.add('loaded');
