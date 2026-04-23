@@ -765,20 +765,28 @@ async function init(){
 
     STATE.studio = studio.map(r=>{
       const erp = normErp(r['ERP Code']);
+      const rawBng = (r['BNG SP']||'').toString().trim();
+      const rawMum = (r['MUM SP']||'').toString().trim();
+      const bngSpNum = parseFloat(rawBng);
+      const mumSpNum = parseFloat(rawMum);
+      const hasBngPrice = rawBng !== '' && !isNaN(bngSpNum) && bngSpNum > 0;
+      const hasMumPrice = rawMum !== '' && !isNaN(mumSpNum) && mumSpNum > 0;
       return {
         productId: r['Product ID'],
         productName: r['Product Name']||'',
         variantName: r['Variant Name']||'',
         erp,
         baseErp: baseErp(erp),
+        isLogicVariant: erp !== baseErp(erp),
+        hasPrice: hasBngPrice || hasMumPrice,
         brand: (r['Brand']||'').trim(),
         category: canonicalCategory(r['Category']) || (r['Category']||'').trim(),
         categoryRaw: (r['Category']||'').trim(),
         categoryRecognized: canonicalCategory(r['Category']) !== null,
         backendType: (r['Backend Product Types']||'').trim(),
         city: r['City']||'',
-        bngSp: parseFloat(r['BNG SP'])||0,
-        mumSp: parseFloat(r['MUM SP'])||0,
+        bngSp: hasBngPrice ? bngSpNum : 0,
+        mumSp: hasMumPrice ? mumSpNum : 0,
         status: r['Status']||'',
         onShopify: /^\s*yes\s*$/i.test(r['Shopify Products']||''),
       };
@@ -1152,11 +1160,19 @@ function refresh(){
   }
   const projects = projectsSet.size;
 
-  // Dead stock: a Studio row is dead ONLY if NO variant of the same base ERP
-  // has been used in any filtered PKO. This collapses _with_MDF / _without_MDF
-  // pairs — if any variant sold, the whole family is alive.
-  const dead = studio.filter(s=>
-    s.erp && !salesErps.has(s.erp) && !salesBaseErps.has(s.baseErp)
+  // Dead stock: a Studio row counts as dead only if ALL of these hold:
+  //   1. It has an ERP code
+  //   2. It's NOT a logic variant (_WITH_MDF / _WITHOUT_MDF) — we only
+  //      want one row per base product, shown as the canonical base ERP
+  //   3. It has at least one real price (BNG SP or MUM SP) — reference-only
+  //      rows without pricing are catalog placeholders, not sellable stock
+  //   4. Neither the ERP nor any variant of its base has been used in any PKO
+  const dead = studio.filter(s =>
+    s.erp
+    && !s.isLogicVariant
+    && s.hasPrice
+    && !salesErps.has(s.erp)
+    && !salesBaseErps.has(s.baseErp)
   );
 
   // Movement — SINGLE PASS aggregation (O(n) instead of O(n*k))
