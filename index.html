@@ -340,7 +340,7 @@
 
 <header class="topbar">
   <div>
-    <div class="title">iLab Sales Analysis<em>Dashboard</em></div>
+    <div class="title">iLab Sales Analysis <em>Dashboard</em></div>
     
   </div>
   <div class="topbar-right">
@@ -728,44 +728,61 @@ async function init(){
 
     // Normalize ERP: strip whitespace + uppercase, so 'hwht123 ' === 'HWHT123'
     const normErp = s => (s||'').toString().trim().toUpperCase();
+    // Some ERPs have logic-variant suffixes in the Studio dump — e.g.
+    // 'BD-VRM-2024-3161', 'BD-VRM-2024-3161_WITH_MDF', 'BD-VRM-2024-3161_WITHOUT_MDF'
+    // all represent the SAME physical product. If any variant is used in a PKO,
+    // none should count as dead. We strip ONLY these known suffixes — never
+    // arbitrary '_NNN' suffixes, because those are often genuinely different
+    // SKUs (Phantom_141 vs Phantom_142 are separate products).
+    const LOGIC_SUFFIX_RE = /_(WITH_?MDF|WITHOUT_?MDF)$/i;
+    const baseErp = e => e ? e.replace(LOGIC_SUFFIX_RE, '') : e;
+
     // Detect one-off PID products by name
     const PID_RE = /\bPID[\s:\-]*\d*/i;
     const isPid = r => PID_RE.test(r['Product Name']||'') || PID_RE.test(r['Item Name']||'');
 
     // Coerce sales
-    STATE.sales = sales.map(r=>({
-      projectNo: r['Project No'],
-      date: parseDMY(r['PKO Date']),
-      branch: (r['Branch']||'').trim(),
-      erp: normErp(r['ERP Code']),
-      qty: parseFloat(r['Qty'])||0,
-      amount: parseFloat(r['Amount'])||0,
-      itemName: r['Item Name']||'',
-      productName: r['Product Name']||'',
-      category: canonicalCategory(r['Category']) || (r['Category']||'').trim(),
-      categoryRaw: (r['Category']||'').trim(),
-      categoryRecognized: canonicalCategory(r['Category']) !== null,
-      brand: (r['Brand']||'').trim(),
-      defaultCategory: (r['Default Category']||'').trim(),
-      isPid: isPid(r),
-    })).filter(r=>r.date);
+    STATE.sales = sales.map(r=>{
+      const erp = normErp(r['ERP Code']);
+      return {
+        projectNo: r['Project No'],
+        date: parseDMY(r['PKO Date']),
+        branch: (r['Branch']||'').trim(),
+        erp,
+        baseErp: baseErp(erp),
+        qty: parseFloat(r['Qty'])||0,
+        amount: parseFloat(r['Amount'])||0,
+        itemName: r['Item Name']||'',
+        productName: r['Product Name']||'',
+        category: canonicalCategory(r['Category']) || (r['Category']||'').trim(),
+        categoryRaw: (r['Category']||'').trim(),
+        categoryRecognized: canonicalCategory(r['Category']) !== null,
+        brand: (r['Brand']||'').trim(),
+        defaultCategory: (r['Default Category']||'').trim(),
+        isPid: isPid(r),
+      };
+    }).filter(r=>r.date);
 
-    STATE.studio = studio.map(r=>({
-      productId: r['Product ID'],
-      productName: r['Product Name']||'',
-      variantName: r['Variant Name']||'',
-      erp: normErp(r['ERP Code']),
-      brand: (r['Brand']||'').trim(),
-      category: canonicalCategory(r['Category']) || (r['Category']||'').trim(),
-      categoryRaw: (r['Category']||'').trim(),
-      categoryRecognized: canonicalCategory(r['Category']) !== null,
-      backendType: (r['Backend Product Types']||'').trim(),
-      city: r['City']||'',
-      bngSp: parseFloat(r['BNG SP'])||0,
-      mumSp: parseFloat(r['MUM SP'])||0,
-      status: r['Status']||'',
-      onShopify: /^\s*yes\s*$/i.test(r['Shopify Products']||''),
-    }));
+    STATE.studio = studio.map(r=>{
+      const erp = normErp(r['ERP Code']);
+      return {
+        productId: r['Product ID'],
+        productName: r['Product Name']||'',
+        variantName: r['Variant Name']||'',
+        erp,
+        baseErp: baseErp(erp),
+        brand: (r['Brand']||'').trim(),
+        category: canonicalCategory(r['Category']) || (r['Category']||'').trim(),
+        categoryRaw: (r['Category']||'').trim(),
+        categoryRecognized: canonicalCategory(r['Category']) !== null,
+        backendType: (r['Backend Product Types']||'').trim(),
+        city: r['City']||'',
+        bngSp: parseFloat(r['BNG SP'])||0,
+        mumSp: parseFloat(r['MUM SP'])||0,
+        status: r['Status']||'',
+        onShopify: /^\s*yes\s*$/i.test(r['Shopify Products']||''),
+      };
+    });
 
     // Diagnostic: log data health to console so we can debug if dead stock looks wrong
     const studioErps = new Set(STATE.studio.map(r=>r.erp).filter(Boolean));
@@ -1117,7 +1134,8 @@ function refresh(){
   let totalRev = 0;
   let discontinuedRev = 0;
   const projectsSet = new Set();
-  const salesErps = new Set();
+  const salesErps = new Set();              // exact ERPs seen in sales
+  const salesBaseErps = new Set();          // base ERPs (logic-suffix stripped)
   const discontinuedProjects = new Set();
   for(let i=0;i<sales.length;i++){
     const r = sales[i];
@@ -1125,6 +1143,7 @@ function refresh(){
     projectsSet.add(r.projectNo);
     if(r.erp){
       salesErps.add(r.erp);
+      if(r.baseErp) salesBaseErps.add(r.baseErp);
       if(!studioErpSet.has(r.erp)){
         discontinuedRev += r.amount;
         discontinuedProjects.add(r.projectNo);
@@ -1133,8 +1152,12 @@ function refresh(){
   }
   const projects = projectsSet.size;
 
-  // Dead stock: studio ERPs not present in filtered sales
-  const dead = studio.filter(s=> s.erp && !salesErps.has(s.erp));
+  // Dead stock: a Studio row is dead ONLY if NO variant of the same base ERP
+  // has been used in any filtered PKO. This collapses _with_MDF / _without_MDF
+  // pairs — if any variant sold, the whole family is alive.
+  const dead = studio.filter(s=>
+    s.erp && !salesErps.has(s.erp) && !salesBaseErps.has(s.baseErp)
+  );
 
   // Movement — SINGLE PASS aggregation (O(n) instead of O(n*k))
   const movementMap = new Map();
