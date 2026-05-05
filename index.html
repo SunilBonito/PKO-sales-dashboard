@@ -721,10 +721,65 @@ async function loadCsv(path){
   return parsed.data;
 }
 
+// Try loading a single CSV; return its rows on success, [] silently on 404.
+// Anything else (network failure, server error) still throws.
+async function tryLoadCsv(path){
+  let resp;
+  try{
+    resp = await fetch(path);
+  }catch(e){
+    throw new Error(`Network error fetching "${path}" — ${e.message}`);
+  }
+  if(resp.status === 404) return null;     // file doesn't exist — silently skip
+  if(!resp.ok){
+    throw new Error(`Couldn't load "${path}" — HTTP ${resp.status} ${resp.statusText}.`);
+  }
+  const text = await resp.text();
+  if(text.trim().startsWith('<')) return null;   // 404 page disguised as 200
+  const parsed = Papa.parse(text, {header:true, skipEmptyLines:true});
+  return parsed.data;
+}
+
+// Load PKO sales from year-split files (Sales_PKO_2025.csv = FY Apr2025-Mar2026, etc.)
+// Falls back to legacy Sales_PKO.csv if no year files exist.
+// Year naming: FY START year per business convention (FY2025-26 → file 2025).
+async function loadSalesFiles(){
+  // Probe FY years from 2024 (earliest expected) through current calendar year + 1.
+  // April 2026 onwards — fy2026 file is plausible, so we probe up to 2027.
+  const minYear = 2024;
+  const maxYear = new Date().getFullYear() + 1;
+  const candidates = [];
+  for(let y=minYear; y<=maxYear; y++) candidates.push(y);
+
+  const results = await Promise.all(
+    candidates.map(y => tryLoadCsv(`Sales_PKO_${y}.csv`).then(rows => ({y, rows})))
+  );
+  const loaded = results.filter(r => r.rows && r.rows.length);
+
+  if(loaded.length === 0){
+    // No year-split files found — fall back to legacy single file.
+    console.log('[PKO] No year-split files found, falling back to Sales_PKO.csv');
+    const rows = await loadCsv('Sales_PKO.csv');
+    return {rows, years: ['legacy']};
+  }
+
+  // Concatenate all year-files into one rows array
+  const all = [];
+  for(const r of loaded) for(const row of r.rows) all.push(row);
+  console.log('[PKO] Loaded sales from FY files:',
+              loaded.map(r => `FY${r.y}-${(r.y+1).toString().slice(-2)} (${r.rows.length} rows)`).join(', '));
+  return {rows: all, years: loaded.map(r => r.y)};
+}
+
 async function init(){
   const status = document.getElementById('status');
   try{
-    const [sales, studio] = await Promise.all([loadCsv(SALES_FILE), loadCsv(STUDIO_FILE)]);
+    const [salesResult, studio] = await Promise.all([
+      loadSalesFiles(),
+      loadCsv(STUDIO_FILE),
+    ]);
+    const sales = salesResult.rows;
+    STATE._loadedYears = salesResult.years;
 
     // Normalize ERP: strip whitespace + uppercase, so 'hwht123 ' === 'HWHT123'
     const normErp = s => (s||'').toString().trim().toUpperCase();
@@ -852,7 +907,18 @@ async function init(){
     console.log('  Sales rows corrected from Studio master:', reassigned,
                 '(of which name-fixes:', nameFixed + ')');
 
-    status.textContent = `${STATE.studio.length.toLocaleString()} products`;
+    // Build FY label from the years that actually loaded
+    const yrs = STATE._loadedYears || [];
+    let fyLabel = '';
+    if(yrs.length === 1 && yrs[0] === 'legacy'){
+      fyLabel = '';   // legacy single-file mode — no badge
+    } else if(yrs.length === 1){
+      fyLabel = ` · FY${String(yrs[0]).slice(-2)}-${String(yrs[0]+1).slice(-2)}`;
+    } else if(yrs.length > 1){
+      const first = yrs[0], last = yrs[yrs.length-1];
+      fyLabel = ` · FY${String(first).slice(-2)} – FY${String(last).slice(-2)}`;
+    }
+    status.textContent = `${STATE.studio.length.toLocaleString()} products${fyLabel}`;
     status.classList.add('loaded');
 
     buildFilters();
@@ -870,13 +936,12 @@ async function init(){
         <p style="font-family:'JetBrains Mono',monospace;background:var(--card);padding:12px;border-radius:4px;font-size:12px;line-height:1.5;color:var(--ink)">${escapeHtml(msg)}</p>
         <p style="margin-top:18px"><strong>Common fixes:</strong></p>
         <ul>
-          <li><strong>Check filenames exactly.</strong> GitHub is case-sensitive. They must be:
-            <br><code>Sales_PKO.csv</code> and <code>Studio_Dump_for_PKO_Sales.csv</code>
-            <br>(capital S, capital P, underscores — no spaces, no lowercase)</li>
+          <li><strong>Check filenames exactly.</strong> GitHub is case-sensitive. The dashboard expects either:
+            <br>· <code>Sales_PKO_2025.csv</code>, <code>Sales_PKO_2026.csv</code> (year-split, FY start year)
+            <br>· or legacy <code>Sales_PKO.csv</code> (single file)
+            <br>plus <code>Studio_Dump_for_PKO_Sales.csv</code></li>
           <li><strong>Check files are in the repo root</strong>, alongside <code>index.html</code> (not in a subfolder).</li>
-          <li><strong>Test the CSV directly:</strong> open
-            <br><code>&lt;your-pages-url&gt;/Sales_PKO.csv</code>
-            <br>in your browser. If you get a 404 or HTML page, the filename is wrong.</li>
+          <li><strong>Test a file directly:</strong> open <code>&lt;your-pages-url&gt;/Sales_PKO_2025.csv</code> in your browser. If you get a 404 or HTML page, the filename is wrong.</li>
           <li><strong>Opening this file via <code>file://</code> locally?</strong> Browsers block that. Run <code>python3 -m http.server</code> in the folder instead.</li>
         </ul>
       </div>`;
